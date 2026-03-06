@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kids Bilingual Video Studio</title>
+    <style>
+      :root {
+        --bg: #fff7ed;
+        --ink: #1f2937;
+        --panel: rgba(255, 255, 255, 0.85);
+        --accent: #ea580c;
+        --accent-2: #2563eb;
+        --accent-3: #10b981;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Trebuchet MS", "Verdana", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(253, 230, 138, 0.85), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(191, 219, 254, 0.85), transparent 24%),
+          linear-gradient(135deg, #fff7ed 0%, #fef3c7 45%, #dbeafe 100%);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      main {
+        width: min(1240px, calc(100% - 32px));
+        margin: 24px auto 48px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+        gap: 24px;
+      }
+
+      main > * {
+        min-width: 0;
+      }
+
+      .hero, .panel {
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        border-radius: 28px;
+        box-shadow: 0 18px 60px rgba(15, 23, 42, 0.12);
+      }
+
+      .hero {
+        grid-column: 1 / -1;
+        padding: 28px;
+        min-height: 260px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        width: 280px;
+        height: 280px;
+        right: -32px;
+        top: -72px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(234, 88, 12, 0.25), transparent 70%);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        line-height: 1;
+      }
+
+      .lead {
+        max-width: 680px;
+        font-size: 1.05rem;
+        line-height: 1.6;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .chip {
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        font-size: 0.92rem;
+      }
+
+      .panel {
+        padding: 24px;
+        overflow: hidden;
+      }
+
+      .panel h2 {
+        margin-top: 0;
+      }
+
+      form {
+        display: grid;
+        gap: 16px;
+      }
+
+      label {
+        font-weight: 700;
+        font-size: 0.95rem;
+        display: grid;
+        gap: 8px;
+      }
+
+      textarea, input, select, button {
+        font: inherit;
+      }
+
+      textarea, input, select {
+        width: 100%;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.95);
+      }
+
+      textarea {
+        min-height: 180px;
+        resize: vertical;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 18px;
+        padding: 14px 18px;
+        background: linear-gradient(135deg, var(--accent), #fb923c);
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 12px 30px rgba(234, 88, 12, 0.28);
+      }
+
+      .status-card {
+        min-height: 260px;
+        grid-column: 1 / -1;
+      }
+
+      .history-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .history-item {
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        cursor: pointer;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-weight: 700;
+        background: rgba(37, 99, 235, 0.12);
+        color: var(--accent-2);
+      }
+
+      a.download {
+        display: inline-block;
+        margin-top: 12px;
+        color: var(--accent-3);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .job-summary {
+        margin-top: 14px;
+        padding: 16px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.88);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        line-height: 1.6;
+      }
+
+      @media (max-width: 1180px) {
+        main {
+          grid-template-columns: minmax(0, 1fr);
+          width: min(920px, calc(100% - 28px));
+        }
+
+        .status-card,
+        .hero {
+          grid-column: auto;
+        }
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+          width: min(100%, calc(100% - 24px));
+          margin: 16px auto 32px;
+        }
+
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
+
+        .hero,
+        .panel {
+          border-radius: 24px;
+        }
+
+        .hero {
+          min-height: auto;
+          padding: 22px;
+        }
+
+        .panel {
+          padding: 20px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        h1 {
+          font-size: clamp(1.9rem, 10vw, 2.8rem);
+        }
+
+        .lead {
+          font-size: 0.98rem;
+        }
+
+        .chip {
+          width: 100%;
+          text-align: center;
+        }
+
+        button {
+          width: 100%;
+        }
+
+        .job-summary {
+          padding: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Kids Bilingual Video Studio</h1>
+        <p class="lead">
+          Envie um prompt como "crie um video de 5 minutos sobre cores em ingles para criancas"
+          e a API monta uma aula com postura de professora de ingles, gera a narração em pt-BR com ingles guiado e cria o MP4 final com destaque animado nas palavras-chave.
+        </p>
+        <div class="chips">
+          <span class="chip">Prompt livre</span>
+          <span class="chip">Teacher mode</span>
+          <span class="chip">Ollama + fallback local</span>
+          <span class="chip">Narração automática</span>
+          <span class="chip">Cards com destaque</span>
+          <span class="chip">FFmpeg</span>
+          <span class="chip">Docker Compose</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <form id="render-form">
+          <label>
+            Pedido da aula
+            <textarea id="prompt" required>Crie um video de 5 minutos sobre cores em ingles para criancas de 5 a 8 anos, com narracao em pt-BR mesclando palavras e frases curtas em ingles, mini-jogos e revisao final.</textarea>
+          </label>
+
+          <div class="grid-2">
+            <label>
+              Aula
+              <input id="lesson-number" type="number" min="1" max="999" value="1" />
+            </label>
+
+            <label>
+              Passo
+              <input id="step-number" type="number" min="1" max="999" value="1" />
+            </label>
+          </div>
+
+          <div class="grid-2">
+            <label>
+              Duracao
+              <input id="duration" type="number" min="1" max="15" value="5" />
+            </label>
+
+            <label>
+              Planejador
+              <select id="planner-mode">
+                <option value="local">Local rapido</option>
+                <option value="auto">Auto com Ollama</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="grid-2">
+            <label>
+              Narracao
+              <select id="narration-style">
+                <option value="natural">Texto natural</option>
+                <option value="animated">Mais animada</option>
+              </select>
+            </label>
+
+            <label>
+              Visual backend
+              <select id="visual-backend">
+                <option value="template">Template local</option>
+                <option value="cogvideox">CogVideoX</option>
+              </select>
+            </label>
+          </div>
+
+          <button type="submit">Gerar video</button>
+        </form>
+      </section>
+
+      <section class="panel status-card">
+        <div class="status-pill" id="status-pill">Aguardando envio</div>
+        <p id="job-id">Nenhum job iniciado.</p>
+        <a class="download" id="download-link" hidden>Baixar video</a>
+        <div id="job-output" class="job-summary">Envie um prompt para iniciar o render.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Exemplo de curl</h2>
+        <div class="job-summary">
+          Use a interface para gerar o video. Se precisar da API, envie o mesmo formulario para
+          <strong>`POST /api/v1/renders`</strong>.
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Jobs recentes</h2>
+        <div id="history-list" class="history-list"></div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("render-form");
+      const statusPill = document.getElementById("status-pill");
+      const jobId = document.getElementById("job-id");
+      const jobOutput = document.getElementById("job-output");
+      const downloadLink = document.getElementById("download-link");
+
+      let pollHandle = null;
+
+      const setStatus = (label) => {
+        statusPill.textContent = label;
+      };
+
+      const renderJob = (job) => {
+        jobId.textContent = `Job: ${job.job_id}`;
+        jobOutput.innerHTML = `
+          <strong>Status:</strong> ${job.status}<br />
+          <strong>Aula:</strong> ${job.request.lesson_number} |
+          <strong>Passo:</strong> ${job.request.step_number}<br />
+          <strong>Titulo:</strong> ${job.plan?.title ?? "Gerando..."}<br />
+          <strong>Duracao:</strong> ${job.request.duration_minutes} minuto(s)<br />
+          <strong>Narracao:</strong> ${job.request.narration_style === "animated" ? "Mais animada" : "Natural"}<br />
+          <strong>Destaque visual:</strong> cards sincronizados com as palavras do foco
+        `;
+        if (job.download_url) {
+          downloadLink.hidden = false;
+          downloadLink.href = job.download_url;
+          downloadLink.textContent = "Baixar MP4";
+        } else {
+          downloadLink.hidden = true;
+        }
+      };
+
+      const pollJob = async (id) => {
+        const response = await fetch(`/api/v1/renders/${id}`);
+        const job = await response.json();
+        renderJob(job);
+        setStatus(job.status);
+        if (job.status === "completed" || job.status === "failed") {
+          clearInterval(pollHandle);
+          pollHandle = null;
+        }
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setStatus("enviando");
+        const payload = {
+          prompt: document.getElementById("prompt").value,
+          lesson_number: Number(document.getElementById("lesson-number").value),
+          step_number: Number(document.getElementById("step-number").value),
+          duration_minutes: Number(document.getElementById("duration").value),
+          planner_mode: document.getElementById("planner-mode").value,
+          narration_style: document.getElementById("narration-style").value,
+          visual_backend: document.getElementById("visual-backend").value,
+        };
+
+        const response = await fetch("/api/v1/renders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const job = await response.json();
+        renderJob(job);
+        setStatus(job.status);
+
+        if (pollHandle) {
+          clearInterval(pollHandle);
+        }
+        pollHandle = setInterval(() => pollJob(job.job_id), 3000);
+        loadHistory();
+      });
+
+      const loadHistory = async () => {
+        const response = await fetch("/api/v1/renders?limit=8");
+        const jobs = await response.json();
+        const historyList = document.getElementById("history-list");
+        historyList.innerHTML = "";
+
+        jobs.forEach((job) => {
+          const item = document.createElement("div");
+          item.className = "history-item";
+          item.innerHTML = `
+            <strong>${job.status}</strong><br />
+            <small>${job.job_id}</small><br />
+            <span>${job.request.prompt.slice(0, 90)}</span>
+          `;
+          item.addEventListener("click", () => renderJob(job));
+          historyList.appendChild(item);
+        });
+      };
+
+      loadHistory();
+      setInterval(loadHistory, 6000);
+    </script>
+  </body>
+</html>
