@@ -47,8 +47,8 @@ class Settings(BaseSettings):
 
     ffmpeg_command: str = "ffmpeg"
     ffprobe_command: str = "ffprobe"
-    video_width: int = 1280
-    video_height: int = 720
+    video_width: int = 1920
+    video_height: int = 1080
     video_fps: int = 30
 
     default_visual_backend: Literal["template", "cogvideox"] = "template"

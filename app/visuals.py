@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import random
-import textwrap
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config import Settings
 from app.schemas import LessonScene, RenderRequest
+
+
+@dataclass(frozen=True)
+class CardFrame:
+    text: str
+    left: int
+    top: int
+    width: int
+    height: int
+    fill: str
+    detail_text: str | None = None
 
 
 class TemplateVisualRenderer:
@@ -32,6 +43,7 @@ class TemplateVisualRenderer:
         self._draw_mascot(draw, width, height)
         self._draw_title(draw, scene, width, request)
         self._draw_cards(draw, scene, width, height)
+        self._draw_narration_panel(draw, scene, width, height)
         self._draw_footer(draw, width, height, scene_index, request)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,37 +135,75 @@ class TemplateVisualRenderer:
         draw.text((250, 62), scene.title, font=title_font, fill="#111827")
 
         preview_words = "  |  ".join(scene.on_screen_text[:4]) if scene.on_screen_text else "English time"
-        wrapped = textwrap.fill(preview_words, width=42)
-        draw.text((252, 128), wrapped, font=body_font, fill="#334155")
+        preview_lines = self._wrap_text_to_width(draw, preview_words, body_font, width - 390)
+        preview_y = 128
+        for line_index, line in enumerate(preview_lines[:2]):
+            draw.text((252, preview_y + (line_index * 34)), line, font=body_font, fill="#334155")
 
         draw.rounded_rectangle((56, 46, 190, 100), radius=24, fill="#1D4ED8")
-        draw.text((78, 58), "Kid Class", font=badge_font, fill="#FFFFFF")
+        draw.text((70, 58), "Kid Class", font=badge_font, fill="#FFFFFF")
         if request is not None:
-            draw.rounded_rectangle((width - 312, 52, width - 74, 102), radius=24, fill="#EA580C")
+            draw.rounded_rectangle((width - 332, 52, width - 54, 102), radius=24, fill="#EA580C")
             draw.text(
-                (width - 292, 64),
+                (width - 308, 64),
                 f"Aula {request.lesson_number}  |  Passo {request.step_number}",
                 font=meta_font,
                 fill="#FFFFFF",
             )
 
     def _draw_cards(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
+        detail_font = self._load_font(24, bold=False)
+        for card in self.card_layout(scene, width, height):
+            draw.rounded_rectangle(
+                (card.left, card.top, card.left + card.width, card.top + card.height),
+                radius=28,
+                fill=card.fill,
+                outline="#FFFFFF",
+                width=4,
+            )
+            self._draw_card_title(draw, card.text.title(), x=card.left, y=card.top, card_width=card.width)
+            if card.detail_text:
+                draw.text((card.left + 24, card.top + 100), card.detail_text, font=detail_font, fill="#475569")
+
         if scene.teaching_mode == "dialogue":
             self._draw_dialogue_scene(draw, scene, width, height)
-            return
 
-        detail_font = self._load_font(24, bold=False)
-        cards = scene.vocabulary or scene.on_screen_text[:3]
-        card_width = 244
-        base_x = 220
-        y = 250
+    def card_layout(self, scene: LessonScene, width: int, height: int) -> list[CardFrame]:
+        cards = scene.vocabulary or scene.on_screen_text[:4]
+        if not cards:
+            return []
 
-        for index, word in enumerate(cards[:4]):
-            x = base_x + index * 250
-            card_color = ["#FFFFFF", "#FEF3C7", "#DBEAFE", "#FCE7F3"][index % 4]
-            draw.rounded_rectangle((x, y, x + card_width, y + 150), radius=28, fill=card_color, outline="#FFFFFF", width=4)
-            self._draw_card_title(draw, word.title(), x=x, y=y, card_width=card_width)
-            draw.text((x + 24, y + 100), "Speak with me", font=detail_font, fill="#475569")
+        if scene.teaching_mode == "dialogue":
+            visible_cards = cards[:3]
+            card_width = 260
+            card_height = 150
+            gap = 24
+            top = 236
+            colors = ["#FFFDF7", "#FEF3C7", "#DBEAFE"]
+            detail_text = None
+        else:
+            visible_cards = cards[:4]
+            card_width = 250
+            card_height = 150
+            gap = 20
+            top = 244
+            colors = ["#FFFFFF", "#FEF3C7", "#DBEAFE", "#FCE7F3"]
+            detail_text = "Speak with me"
+
+        total_width = (len(visible_cards) * card_width) + (max(len(visible_cards) - 1, 0) * gap)
+        base_x = int((width - total_width) / 2)
+        return [
+            CardFrame(
+                text=word,
+                left=base_x + index * (card_width + gap),
+                top=top,
+                width=card_width,
+                height=card_height,
+                fill=colors[index % len(colors)],
+                detail_text=detail_text,
+            )
+            for index, word in enumerate(visible_cards)
+        ]
 
     def _draw_dialogue_scene(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
         label_font = self._load_font(24, bold=True)
@@ -162,40 +212,80 @@ class TemplateVisualRenderer:
         if len(english_lines) < 2:
             english_lines = [segment for segment in scene.narration[:2]]
 
-        bubble_specs = [
-            (230, 246, width - 220, 356, "#FFFDF7", "#1D4ED8"),
-            (290, 388, width - 150, 516, "#FEF3C7", "#EA580C"),
-        ]
-
+        top = 430
+        previous_bottom = top
         for index, segment in enumerate(english_lines[:2]):
-            left, top, right, bottom, fill_color, accent = bubble_specs[index]
-            draw.rounded_rectangle((left, top, right, bottom), radius=28, fill=fill_color, outline="#FFFFFF", width=4)
-            speaker_label = "Professor" if segment.speaker == "teacher" else "Aluno"
-            draw.rounded_rectangle((left + 20, top + 16, left + 160, top + 56), radius=18, fill=accent)
-            draw.text((left + 38, top + 24), speaker_label, font=label_font, fill="#FFFFFF")
-            wrapped = self._wrap_text_to_width(draw, segment.text, text_font, (right - left) - 48)
-            line_height = self._line_height(draw, text_font) + 4
-            start_y = top + 72
-            for line_index, line in enumerate(wrapped[:3]):
-                draw.text((left + 24, start_y + (line_index * line_height)), line, font=text_font, fill="#0F172A")
-
-        cards = scene.vocabulary[:3]
-        card_width = 228
-        gap = 18
-        total_width = (len(cards) * card_width) + (max(len(cards) - 1, 0) * gap)
-        start_x = int((width - total_width) / 2)
-        for index, word in enumerate(cards):
-            card_left = start_x + (index * (card_width + gap))
-            card_top = 548
-            card_bottom = 646
-            draw.rounded_rectangle(
-                (card_left, card_top, card_left + card_width, card_bottom),
-                radius=22,
-                fill="#FFFFFF",
-                outline="#FFFFFF",
-                width=3,
+            is_teacher = segment.speaker == "teacher"
+            bubble_left = 420 if is_teacher else 520
+            bubble_right = width - (116 if is_teacher else 136)
+            fill_color = "#FFFDF7" if is_teacher else "#FEF3C7"
+            accent = "#1D4ED8" if is_teacher else "#EA580C"
+            previous_bottom = self._draw_dialogue_bubble(
+                draw=draw,
+                text=segment.text,
+                speaker_label="Professor" if is_teacher else "Aluno",
+                left=bubble_left,
+                top=top if index == 0 else previous_bottom + 28,
+                right=bubble_right,
+                fill_color=fill_color,
+                accent=accent,
+                label_font=label_font,
+                text_font=text_font,
             )
-            self._draw_card_title(draw, word.title(), x=card_left, y=card_top + 2, card_width=card_width)
+
+    def _draw_dialogue_bubble(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        speaker_label: str,
+        left: int,
+        top: int,
+        right: int,
+        fill_color: str,
+        accent: str,
+        label_font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+        text_font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    ) -> int:
+        label_width = self._text_width(draw, speaker_label, label_font) + 44
+        wrapped = self._wrap_text_to_width(draw, text, text_font, (right - left) - 56)[:3]
+        line_height = self._line_height(draw, text_font) + 4
+        bubble_height = max(132, 86 + (len(wrapped) * line_height))
+        bottom = top + bubble_height
+
+        draw.rounded_rectangle((left, top, right, bottom), radius=34, fill=fill_color, outline="#FFFFFF", width=4)
+        draw.rounded_rectangle((left + 24, top + 18, left + 24 + label_width, top + 58), radius=18, fill=accent)
+        draw.text((left + 42, top + 26), speaker_label, font=label_font, fill="#FFFFFF")
+
+        text_y = top + 76
+        for line_index, line in enumerate(wrapped):
+            draw.text((left + 28, text_y + (line_index * line_height)), line, font=text_font, fill="#0F172A")
+        return bottom
+
+    def _draw_narration_panel(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
+        panel_left = 68
+        panel_top = height - (206 if scene.teaching_mode == "dialogue" else 166)
+        panel_right = width - 68
+        panel_bottom = height - (62 if scene.teaching_mode == "dialogue" else 52)
+        draw.rounded_rectangle(
+            (panel_left, panel_top, panel_right, panel_bottom),
+            radius=34,
+            fill="#FFFDF7",
+            outline="#FFFFFF",
+            width=4,
+        )
+
+        panel_font = self._load_font(24, bold=False)
+        text = self._narration_panel_text(scene)
+        wrapped = self._wrap_text_to_width(draw, text, panel_font, panel_right - panel_left - 56)
+        line_height = self._line_height(draw, panel_font) + 4
+        start_y = panel_top + 20
+        if scene.teaching_mode == "dialogue":
+            badge_font = self._load_font(22, bold=True)
+            draw.rounded_rectangle((panel_left + 24, panel_top + 18, panel_left + 270, panel_top + 58), radius=18, fill="#1D4ED8")
+            draw.text((panel_left + 42, panel_top + 26), "Professor explica", font=badge_font, fill="#FFFFFF")
+            start_y = panel_top + 72
+        for line_index, line in enumerate(wrapped[:3]):
+            draw.text((panel_left + 28, start_y + (line_index * line_height)), line, font=panel_font, fill="#0F172A")
 
     def _draw_footer(
         self,
@@ -255,6 +345,20 @@ class TemplateVisualRenderer:
         line_height = self._line_height(draw, fallback_font)
         for line_index, line in enumerate(fallback_lines):
             draw.text((x + 22, y + 26 + (line_index * line_height)), line, font=fallback_font, fill="#0F172A")
+
+    def _narration_panel_text(self, scene: LessonScene) -> str:
+        teacher_segments = [
+            " ".join(segment.text.split())
+            for segment in scene.narration
+            if segment.language == "pt-BR" and segment.speaker == "teacher"
+        ]
+        if teacher_segments:
+            if scene.teaching_mode == "dialogue":
+                return teacher_segments[-1]
+            return teacher_segments[0]
+        if scene.narration:
+            return " ".join(scene.narration[0].text.split())
+        return ""
 
     def _wrap_text_to_width(
         self,

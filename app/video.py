@@ -93,16 +93,12 @@ class VideoComposer:
         subtitles: list[NarrationSubtitle],
         ffmpeg_command: str,
     ) -> None:
-        subtitle_path = None
-        if subtitles:
-            subtitle_path = output_path.parent / "captions.ass"
-            self._write_ass_subtitles(subtitle_path, subtitles)
         filter_chain = self._build_scene_filter(
             scene=scene,
             duration=duration,
             animated_clip=animation_path is not None,
             cues=cues,
-            subtitle_path=subtitle_path,
+            subtitle_path=None,
         )
         audio_filter_chain = self._build_audio_filter()
         base_command = [ffmpeg_command, "-y"]
@@ -192,37 +188,36 @@ class VideoComposer:
             filters = [
                 f"scale={self.settings.video_width}:{self.settings.video_height}:flags=lanczos",
                 "eq=saturation=1.06:brightness=0.02",
-                "unsharp=3:3:0.35:3:3:0.0",
                 "setsar=1",
             ]
         else:
             filters = [
-                "scale=1280:720:flags=lanczos",
+                f"scale={self.settings.video_width}:{self.settings.video_height}:flags=lanczos",
                 "eq=saturation=1.08:brightness=0.03",
-                "unsharp=5:5:0.45:5:5:0.0",
                 "setsar=1",
             ]
 
+        card_frames = self.visual_renderer.card_layout(scene, self.settings.video_width, self.settings.video_height)
         for start, end, card_index in self._card_highlight_schedule(scene, duration, cues):
-            x = 220 + card_index * 250 - 8
-            y = 242
-            width = 260
-            height = 166
+            if card_index >= len(card_frames):
+                continue
+            card = card_frames[card_index]
+            x = card.left - 8
+            y = card.top - 8
+            width = card.width + 16
+            height = card.height + 16
             filters.append(
                 "drawbox="
                 f"x={x}:y={y}:w={width}:h={height}:"
-                "color=yellow@0.20:t=fill:"
+                "color=yellow@0.12:t=fill:"
                 f"enable='between(t,{start:.2f},{end:.2f})'"
             )
             filters.append(
                 "drawbox="
                 f"x={x}:y={y}:w={width}:h={height}:"
-                "color=orange@0.95:t=6:"
+                "color=orange@0.95:t=5:"
                 f"enable='between(t,{start:.2f},{end:.2f})'"
             )
-
-        if subtitle_path is not None:
-            filters.append(f"subtitles='{self._subtitle_filter_path(subtitle_path)}'")
 
         return ",".join(filters)
 

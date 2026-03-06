@@ -483,7 +483,10 @@ class LessonPlanner:
                 NarrationSegment(language="en-US", speaker="student", text="I'm fine, thank you."),
                 NarrationSegment(
                     language="pt-BR",
-                    text="Muito bem. Você ouviu uma saudação e uma resposta curta, como no começo de uma conversa.",
+                    text=(
+                        f"Muito bem. Nesse diálogo, o professor disse {self._translation(profile, first_word)}, Ana, como você está? "
+                        "Depois o aluno respondeu estou bem, obrigado."
+                    ),
                 ),
             ],
             4: [
@@ -526,7 +529,10 @@ class LessonPlanner:
                 NarrationSegment(language="en-US", speaker="student", text=f"{first_word.title()}, teacher."),
                 NarrationSegment(
                     language="pt-BR",
-                    text="Essa prática ajuda a usar a expressão com uma pessoa de verdade, não só isolada.",
+                    text=(
+                        f"Aqui o professor disse {self._translation(profile, first_word)}, turma. Vamos estudar inglês. "
+                        f"Depois o aluno respondeu {self._translation(profile, first_word)}, professor."
+                    ),
                 ),
             ],
             7: [

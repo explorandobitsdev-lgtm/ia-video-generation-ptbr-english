@@ -2,9 +2,11 @@ from pathlib import Path
 
 from app.config import Settings
 from app.job_store import JobStore
+from app.narration import NarrationCue
 from app.planner import LessonPlanner
 from app.script_writer import ScriptWriter
 from app.schemas import JobStatus, RenderRequest
+from app.video import VideoComposer
 
 
 def build_settings(tmp_path: Path) -> Settings:
@@ -65,6 +67,53 @@ def test_fallback_plan_uses_requested_greetings_from_prompt(tmp_path: Path) -> N
     assert "bom dia" in plan.scenes[0].narration[0].text.lower()
     assert "good morning" in plan.scenes[0].narration[1].text.lower()
     assert any(segment.speaker == "student" for segment in plan.scenes[2].narration)
+
+
+def test_greetings_dialogue_scene_explains_the_exchange_in_portuguese(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 2 minutos sobre saudacoes em ingles bom dia, boa tarde e boa noite para criancas.",
+        duration_minutes=2,
+    )
+
+    plan = planner.generate(request)
+    scene = plan.scenes[2]
+    teacher_pt_lines = [
+        segment.text.lower()
+        for segment in scene.narration
+        if segment.language == "pt-BR" and segment.speaker == "teacher"
+    ]
+
+    assert any("como você está" in line for line in teacher_pt_lines)
+    assert any("estou bem, obrigado" in line for line in teacher_pt_lines)
+
+
+def test_video_highlight_uses_rendered_card_geometry(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    composer = VideoComposer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 2 minutos sobre saudacoes em ingles bom dia, boa tarde e boa noite para criancas.",
+        duration_minutes=2,
+    )
+
+    plan = planner.generate(request)
+    scene = plan.scenes[1]
+    card = composer.visual_renderer.card_layout(scene, settings.video_width, settings.video_height)[0]
+
+    filter_chain = composer._build_scene_filter(
+        scene=scene,
+        duration=float(scene.duration_seconds),
+        animated_clip=False,
+        cues=[NarrationCue(label=scene.vocabulary[0], start=1.0, end=2.0)],
+        subtitle_path=None,
+    )
+
+    assert f"x={card.left - 8}" in filter_chain
+    assert f"y={card.top - 8}" in filter_chain
+    assert f"w={card.width + 16}" in filter_chain
+    assert f"h={card.height + 16}" in filter_chain
 
 
 def test_job_store_round_trip(tmp_path: Path) -> None:
