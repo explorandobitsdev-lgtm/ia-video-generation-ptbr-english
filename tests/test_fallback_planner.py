@@ -94,6 +94,22 @@ def test_number_cards_show_numeric_badges(tmp_path: Path) -> None:
     assert [card.badge_text for card in cards] == ["1", "2", "3"]
 
 
+def test_vocabulary_and_echo_scenes_repeat_words_after_prompt(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 1 minuto sobre contar, ensine os numeros de 1 a 10 em ingles para criancas.",
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+
+    assert plan.scenes[1].narration[-1].language == "en-US"
+    assert "four. five. six." in plan.scenes[1].narration[-1].text.lower()
+    assert plan.scenes[2].narration[-1].language == "en-US"
+    assert "seven. eight." in plan.scenes[2].narration[-1].text.lower()
+
+
 def test_fallback_plan_uses_requested_greetings_from_prompt(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)

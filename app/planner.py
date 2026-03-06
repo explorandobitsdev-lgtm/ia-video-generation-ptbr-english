@@ -313,6 +313,7 @@ class LessonPlanner:
             return self._build_introductions_scene_narration(scene_index, profile, words, prompt)
 
         joined_words = ", ".join(words)
+        echo_words = self._echo_words(words)
         lead_word = words[0]
         meanings = self._meaning_list(profile, words)
         meaning_intro = self._meaning_intro(meanings)
@@ -344,6 +345,7 @@ class LessonPlanner:
                     language="pt-BR",
                     text="Muito bem. Agora aponte para cada cartão e fale junto comigo, uma palavra de cada vez.",
                 ),
+                NarrationSegment(language="en-US", text=echo_words),
             ],
             3: [
                 NarrationSegment(
@@ -353,11 +355,12 @@ class LessonPlanner:
                         "Quando eu falar em inglês, você repete do mesmo jeito."
                     ),
                 ),
-                NarrationSegment(language="en-US", text=joined_words),
+                NarrationSegment(language="en-US", text=echo_words),
                 NarrationSegment(
                     language="pt-BR",
-                    text="Excelente. Mais uma vez, com capricho na pronúncia e ouvindo cada pedacinho da palavra.",
+                    text="Excelente. Mais uma vez. Aponte para cada cartão e repita comigo, ouvindo cada pedacinho da palavra.",
                 ),
+                NarrationSegment(language="en-US", text=echo_words),
             ],
             4: [
                 NarrationSegment(
@@ -965,6 +968,12 @@ class LessonPlanner:
 
     def _meaning_list(self, profile: TopicProfile, words: list[str]) -> list[str]:
         return [self._translation(profile, word) for word in words]
+
+    def _echo_words(self, words: list[str]) -> str:
+        spoken_words = [word.strip().title() for word in words if word.strip()]
+        if not spoken_words:
+            return ""
+        return ". ".join(spoken_words) + "."
 
     def _translation(self, profile: TopicProfile, word: str) -> str:
         lowered = word.lower()
