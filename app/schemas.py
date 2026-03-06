@@ -16,6 +16,7 @@ class RenderRequest(BaseModel):
     prompt: str = Field(min_length=12, max_length=2000)
     duration_minutes: int = Field(default=5, ge=1, le=15)
     target_age: str = Field(default="5-8")
+    lesson_name: str | None = Field(default=None, max_length=120)
     lesson_number: int = Field(default=1, ge=1, le=999)
     step_number: int = Field(default=1, ge=1, le=999)
     planner_mode: Literal["auto", "local"] = "auto"
@@ -27,6 +28,14 @@ class RenderRequest(BaseModel):
     @classmethod
     def normalize_prompt(cls, value: str) -> str:
         return " ".join(value.split())
+
+    @field_validator("lesson_name")
+    @classmethod
+    def normalize_lesson_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        return cleaned or None
 
 
 class NarrationSegment(BaseModel):

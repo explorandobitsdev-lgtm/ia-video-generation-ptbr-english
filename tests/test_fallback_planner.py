@@ -7,6 +7,7 @@ from app.planner import LessonPlanner
 from app.script_writer import ScriptWriter
 from app.schemas import JobStatus, RenderRequest
 from app.video import VideoComposer
+from app.visuals import TemplateVisualRenderer
 
 
 def build_settings(tmp_path: Path) -> Settings:
@@ -50,6 +51,49 @@ def test_fallback_plan_supports_short_video(tmp_path: Path) -> None:
     assert sum(scene.duration_seconds for scene in plan.scenes) == 60
 
 
+def test_render_request_normalizes_lesson_name() -> None:
+    request = RenderRequest(
+        prompt="Crie um video de 1 minuto sobre cores em ingles para criancas.",
+        lesson_name="  Aula   de cores  ",
+    )
+
+    assert request.lesson_name == "Aula de cores"
+
+
+def test_fallback_plan_covers_numbers_one_to_ten_in_short_video(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video de 1 minuto sobre contar, ensine os numeros de 1 a 10 em ingles "
+            "para criancas de 5 a 8 anos, com narracao em pt-BR mesclando palavras e frases curtas em ingles."
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    taught_words = [word for scene in plan.scenes for word in scene.vocabulary]
+
+    assert plan.vocabulary[:10] == ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+    assert set(plan.vocabulary[:10]).issubset(set(taught_words))
+    assert max(len(scene.vocabulary) for scene in plan.scenes) <= 3
+
+
+def test_number_cards_show_numeric_badges(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 1 minuto sobre contar, ensine os numeros de 1 a 10 em ingles para criancas.",
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    cards = renderer.card_layout(plan.scenes[0], settings.video_width, settings.video_height)
+
+    assert [card.badge_text for card in cards] == ["1", "2", "3"]
+
+
 def test_fallback_plan_uses_requested_greetings_from_prompt(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -67,6 +111,26 @@ def test_fallback_plan_uses_requested_greetings_from_prompt(tmp_path: Path) -> N
     assert "bom dia" in plan.scenes[0].narration[0].text.lower()
     assert "good morning" in plan.scenes[0].narration[1].text.lower()
     assert any(segment.speaker == "student" for segment in plan.scenes[2].narration)
+
+
+def test_fallback_plan_picks_presentations_topic_from_prompt(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video de 1 minuto sobre aprensetações meu nome é, como você chama, "
+            "eeu sou bruno muito prazer em ingles para criancas de 5 a 8 anos."
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+
+    assert plan.title == "Apresentações em Inglês para Crianças"
+    assert plan.vocabulary[:4] == ["my name is", "what is your name", "i am bruno", "nice to meet you"]
+    assert "apresentações" in plan.scenes[0].narration[0].text.lower()
+    assert "my name is bruno" in plan.scenes[1].narration[1].text.lower()
+    assert "what is your name" in plan.scenes[2].narration[1].text.lower()
 
 
 def test_greetings_dialogue_scene_explains_the_exchange_in_portuguese(tmp_path: Path) -> None:

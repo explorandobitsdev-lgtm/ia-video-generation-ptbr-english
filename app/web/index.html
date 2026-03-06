@@ -283,17 +283,10 @@
             <textarea id="prompt" required>Crie um video de 5 minutos sobre cores em ingles para criancas de 5 a 8 anos, com narracao em pt-BR mesclando palavras e frases curtas em ingles, mini-jogos e revisao final.</textarea>
           </label>
 
-          <div class="grid-2">
-            <label>
-              Aula
-              <input id="lesson-number" type="number" min="1" max="999" value="1" />
-            </label>
-
-            <label>
-              Passo
-              <input id="step-number" type="number" min="1" max="999" value="1" />
-            </label>
-          </div>
+          <label>
+            Nome da aula
+            <input id="lesson-name" type="text" maxlength="120" placeholder="Ex.: Numeros em ingles" />
+          </label>
 
           <div class="grid-2">
             <label>
@@ -368,10 +361,12 @@
 
       const renderJob = (job) => {
         jobId.textContent = `Job: ${job.job_id}`;
+        const lessonNameRow = job.request.lesson_name
+          ? `<strong>Nome da aula:</strong> ${job.request.lesson_name}<br />`
+          : "";
         jobOutput.innerHTML = `
           <strong>Status:</strong> ${job.status}<br />
-          <strong>Aula:</strong> ${job.request.lesson_number} |
-          <strong>Passo:</strong> ${job.request.step_number}<br />
+          ${lessonNameRow}
           <strong>Titulo:</strong> ${job.plan?.title ?? "Gerando..."}<br />
           <strong>Duracao:</strong> ${job.request.duration_minutes} minuto(s)<br />
           <strong>Narracao:</strong> ${job.request.narration_style === "animated" ? "Mais animada" : "Natural"}<br />
@@ -402,8 +397,7 @@
         setStatus("enviando");
         const payload = {
           prompt: document.getElementById("prompt").value,
-          lesson_number: Number(document.getElementById("lesson-number").value),
-          step_number: Number(document.getElementById("step-number").value),
+          lesson_name: document.getElementById("lesson-name").value.trim() || null,
           duration_minutes: Number(document.getElementById("duration").value),
           planner_mode: document.getElementById("planner-mode").value,
           narration_style: document.getElementById("narration-style").value,
@@ -436,9 +430,13 @@
         jobs.forEach((job) => {
           const item = document.createElement("div");
           item.className = "history-item";
+          const lessonName = job.request.lesson_name
+            ? `<br /><small>${job.request.lesson_name}</small>`
+            : "";
           item.innerHTML = `
             <strong>${job.status}</strong><br />
             <small>${job.job_id}</small><br />
+            ${lessonName}
             <span>${job.request.prompt.slice(0, 90)}</span>
           `;
           item.addEventListener("click", () => renderJob(job));

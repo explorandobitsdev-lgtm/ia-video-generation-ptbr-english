@@ -19,6 +19,21 @@ class CardFrame:
     height: int
     fill: str
     detail_text: str | None = None
+    badge_text: str | None = None
+
+
+NUMBER_BADGES = {
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+}
 
 
 class TemplateVisualRenderer:
@@ -127,32 +142,33 @@ class TemplateVisualRenderer:
         request: RenderRequest | None,
     ) -> None:
         title_font = self._load_font(58, bold=True)
-        badge_font = self._load_font(30, bold=True)
+        badge_font = self._load_font(28, bold=True)
         body_font = self._load_font(28, bold=False)
-        meta_font = self._load_font(24, bold=True)
 
-        draw.rounded_rectangle((215, 42, width - 52, 176), radius=36, fill="#FFFDF7", outline="#FFFFFF", width=3)
-        draw.text((250, 62), scene.title, font=title_font, fill="#111827")
+        panel_left = 36
+        panel_top = 42
+        panel_right = width - 52
+        panel_bottom = 176
+        badge_left = panel_left + 22
+        badge_top = panel_top + 10
+        badge_right = badge_left + 178
+        badge_bottom = badge_top + 54
+        title_x = badge_right + 34
+
+        draw.rounded_rectangle((panel_left, panel_top, panel_right, panel_bottom), radius=36, fill="#FFFDF7", outline="#FFFFFF", width=3)
+        draw.rounded_rectangle((badge_left, badge_top, badge_right, badge_bottom), radius=24, fill="#1D4ED8")
+        draw.text((badge_left + 22, badge_top + 10), "Kid Class", font=badge_font, fill="#FFFFFF")
+        draw.text((title_x, 62), scene.title, font=title_font, fill="#111827")
 
         preview_words = "  |  ".join(scene.on_screen_text[:4]) if scene.on_screen_text else "English time"
-        preview_lines = self._wrap_text_to_width(draw, preview_words, body_font, width - 390)
+        preview_max_width = width - title_x - 84
+        preview_lines = self._wrap_text_to_width(draw, preview_words, body_font, preview_max_width)
         preview_y = 128
         for line_index, line in enumerate(preview_lines[:2]):
-            draw.text((252, preview_y + (line_index * 34)), line, font=body_font, fill="#334155")
-
-        draw.rounded_rectangle((56, 46, 190, 100), radius=24, fill="#1D4ED8")
-        draw.text((70, 58), "Kid Class", font=badge_font, fill="#FFFFFF")
-        if request is not None:
-            draw.rounded_rectangle((width - 332, 52, width - 54, 102), radius=24, fill="#EA580C")
-            draw.text(
-                (width - 308, 64),
-                f"Aula {request.lesson_number}  |  Passo {request.step_number}",
-                font=meta_font,
-                fill="#FFFFFF",
-            )
+            draw.text((title_x + 2, preview_y + (line_index * 34)), line, font=body_font, fill="#334155")
 
     def _draw_cards(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
-        detail_font = self._load_font(24, bold=False)
+        detail_font = self._load_font(22, bold=False)
         for card in self.card_layout(scene, width, height):
             draw.rounded_rectangle(
                 (card.left, card.top, card.left + card.width, card.top + card.height),
@@ -161,9 +177,20 @@ class TemplateVisualRenderer:
                 outline="#FFFFFF",
                 width=4,
             )
-            self._draw_card_title(draw, card.text.title(), x=card.left, y=card.top, card_width=card.width)
+            title_top_padding = 34 if card.badge_text else 0
+            if card.badge_text:
+                self._draw_card_badge(draw, card)
+            title_bottom = self._draw_card_title(
+                draw,
+                card.text.title(),
+                x=card.left,
+                y=card.top,
+                card_width=card.width,
+                top_padding=title_top_padding,
+            )
             if card.detail_text:
-                draw.text((card.left + 24, card.top + 100), card.detail_text, font=detail_font, fill="#475569")
+                detail_y = max(card.top + (110 if card.badge_text else 100), title_bottom + 8)
+                draw.text((card.left + 24, detail_y), card.detail_text, font=detail_font, fill="#475569")
 
         if scene.teaching_mode == "dialogue":
             self._draw_dialogue_scene(draw, scene, width, height)
@@ -201,9 +228,31 @@ class TemplateVisualRenderer:
                 height=card_height,
                 fill=colors[index % len(colors)],
                 detail_text=detail_text,
+                badge_text=self._number_badge_for_word(word),
             )
             for index, word in enumerate(visible_cards)
         ]
+
+    def _draw_card_badge(self, draw: ImageDraw.ImageDraw, card: CardFrame) -> None:
+        if not card.badge_text:
+            return
+
+        badge_font = self._load_font(24 if len(card.badge_text) == 1 else 22, bold=True)
+        badge_width = 56 if len(card.badge_text) == 1 else 72
+        badge_left = card.left + int((card.width - badge_width) / 2)
+        badge_top = card.top + 14
+        badge_right = badge_left + badge_width
+        badge_bottom = badge_top + 36
+        draw.rounded_rectangle(
+            (badge_left, badge_top, badge_right, badge_bottom),
+            radius=20,
+            fill="#1D4ED8",
+            outline="#FFFFFF",
+            width=3,
+        )
+        text_width = self._text_width(draw, card.badge_text, badge_font)
+        text_x = badge_left + int((badge_width - text_width) / 2)
+        draw.text((text_x, badge_top + 4), card.badge_text, font=badge_font, fill="#FFFFFF")
 
     def _draw_dialogue_scene(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
         label_font = self._load_font(24, bold=True)
@@ -263,9 +312,9 @@ class TemplateVisualRenderer:
 
     def _draw_narration_panel(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
         panel_left = 68
-        panel_top = height - (206 if scene.teaching_mode == "dialogue" else 166)
+        panel_top = height - (258 if scene.teaching_mode == "dialogue" else 214)
         panel_right = width - 68
-        panel_bottom = height - (62 if scene.teaching_mode == "dialogue" else 52)
+        panel_bottom = height - 88
         draw.rounded_rectangle(
             (panel_left, panel_top, panel_right, panel_bottom),
             radius=34,
@@ -298,8 +347,6 @@ class TemplateVisualRenderer:
         footer_font = self._load_font(22, bold=False)
         draw.rounded_rectangle((36, height - 54, width - 36, height - 20), radius=16, fill="#0F172A")
         footer_text = f"Cena {scene_index:02d}  |  narracao automatica"
-        if request is not None:
-            footer_text = f"Aula {request.lesson_number}  |  Passo {request.step_number}  |  Cena {scene_index:02d}"
         draw.text(
             (56, height - 48),
             footer_text,
@@ -327,7 +374,8 @@ class TemplateVisualRenderer:
         x: int,
         y: int,
         card_width: int,
-    ) -> None:
+        top_padding: int = 0,
+    ) -> int:
         max_width = card_width - 44
         for font_size in (34, 32, 30, 28, 26, 24, 22):
             font = self._load_font(font_size, bold=True)
@@ -335,16 +383,20 @@ class TemplateVisualRenderer:
             if len(lines) <= 2:
                 line_height = self._line_height(draw, font)
                 total_height = len(lines) * line_height
-                start_y = y + 26 + max(0, (44 - total_height) // 2)
+                start_y = y + 26 + top_padding + max(0, (44 - total_height) // 2)
                 for line_index, line in enumerate(lines):
                     draw.text((x + 22, start_y + (line_index * line_height)), line, font=font, fill="#0F172A")
-                return
+                return start_y + (len(lines) * line_height)
 
         fallback_font = self._load_font(20, bold=True)
         fallback_lines = self._wrap_text_to_width(draw, text, fallback_font, max_width)[:2]
         line_height = self._line_height(draw, fallback_font)
         for line_index, line in enumerate(fallback_lines):
-            draw.text((x + 22, y + 26 + (line_index * line_height)), line, font=fallback_font, fill="#0F172A")
+            draw.text((x + 22, y + 26 + top_padding + (line_index * line_height)), line, font=fallback_font, fill="#0F172A")
+        return y + 26 + top_padding + (len(fallback_lines) * line_height)
+
+    def _number_badge_for_word(self, word: str) -> str | None:
+        return NUMBER_BADGES.get(word.strip().lower())
 
     def _narration_panel_text(self, scene: LessonScene) -> str:
         teacher_segments = [

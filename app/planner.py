@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
+import unicodedata
 from dataclasses import dataclass
 
 import httpx
@@ -60,7 +62,7 @@ TOPIC_PROFILES = (
         key="numbers",
         title_pt="Números em Inglês",
         focus="números de um a dez",
-        vocabulary=["one", "two", "three", "four", "five", "six"],
+        vocabulary=["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"],
         translations={
             "one": "um",
             "two": "dois",
@@ -68,9 +70,48 @@ TOPIC_PROFILES = (
             "four": "quatro",
             "five": "cinco",
             "six": "seis",
+            "seven": "sete",
+            "eight": "oito",
+            "nine": "nove",
+            "ten": "dez",
         },
         visual_theme="playful counting blocks, stars and balloons",
         matches=("numero", "número", "numeros", "números", "number", "numbers", "contar"),
+    ),
+    TopicProfile(
+        key="introductions",
+        title_pt="Apresentações em Inglês",
+        focus="apresentações, nomes e pequenos diálogos",
+        vocabulary=["my name is", "what is your name", "nice to meet you", "i am", "teacher", "friend"],
+        translations={
+            "my name is": "meu nome é",
+            "what is your name": "como você se chama",
+            "nice to meet you": "muito prazer",
+            "i am": "eu sou",
+            "teacher": "professor",
+            "friend": "amigo",
+        },
+        visual_theme="colorful classroom introductions with name tags, smiling children and speech bubbles",
+        matches=(
+            "apresent",
+            "aprenseta",
+            "introduc",
+            "meu nome",
+            "como voce chama",
+            "como voce se chama",
+            "como voc chama",
+            "qual e o seu nome",
+            "qual seu nome",
+            "me chamo",
+            "my name is",
+            "what is your name",
+            "what s your name",
+            "i am",
+            "muito prazer",
+            "nice to meet you",
+            "prazer em conhecer",
+            "nome",
+        ),
     ),
     TopicProfile(
         key="greetings",
@@ -89,7 +130,18 @@ TOPIC_PROFILES = (
             "teacher": "professor",
         },
         visual_theme="bright school doorway with waving children and confetti",
-        matches=("saud", "greeting", "hello", "cumprimento", "introducao", "introdução", "ingles", "inglês"),
+        matches=(
+            "saud",
+            "greeting",
+            "hello",
+            "cumprimento",
+            "bom dia",
+            "boa tarde",
+            "boa noite",
+            "good morning",
+            "good afternoon",
+            "good night",
+        ),
     ),
     TopicProfile(
         key="body",
@@ -188,9 +240,9 @@ class LessonPlanner:
         profile = self._pick_topic(request.prompt)
         vocabulary = self._select_vocabulary(profile, request.prompt)
         primary_vocabulary = self._primary_vocabulary(profile, request.prompt, vocabulary)
-        groups = self._build_vocabulary_groups(vocabulary, primary_vocabulary)
-        scenes: list[LessonScene] = []
         scene_count = max(4, min(len(SCENE_BLUEPRINTS), request.duration_minutes * 3))
+        groups = self._build_vocabulary_groups(vocabulary, primary_vocabulary, scene_count)
+        scenes: list[LessonScene] = []
 
         for index, (scene_title, badge, decor) in enumerate(SCENE_BLUEPRINTS[:scene_count], start=1):
             current_words = groups[(index - 1) % len(groups)]
@@ -204,7 +256,7 @@ class LessonPlanner:
                         f"{profile.visual_theme}, {decor}, children's 2D illustration, soft shadows, "
                         f"big shapes, educational video frame about {profile.focus}, male english teacher guiding students"
                     ),
-                    narration=self._build_scene_narration(index, profile, current_words),
+                    narration=self._build_scene_narration(index, profile, current_words, request.prompt),
                     on_screen_text=[badge, *[word.title() for word in current_words]],
                     vocabulary=current_words,
                     background_palette=self._palette_for_scene(index),
@@ -253,9 +305,12 @@ class LessonPlanner:
         scene_index: int,
         profile: TopicProfile,
         words: list[str],
+        prompt: str,
     ) -> list[NarrationSegment]:
         if profile.key == "greetings":
             return self._build_greetings_scene_narration(scene_index, profile, words)
+        if profile.key == "introductions":
+            return self._build_introductions_scene_narration(scene_index, profile, words, prompt)
 
         joined_words = ", ".join(words)
         lead_word = words[0]
@@ -427,6 +482,175 @@ class LessonPlanner:
                 NarrationSegment(
                     language="pt-BR",
                     text="Tchau, turma. Na próxima aula o professor volta com novas palavras, novas frases e mais prática.",
+                ),
+            ],
+        }
+        return chunks[scene_index]
+
+    def _build_introductions_scene_narration(
+        self,
+        scene_index: int,
+        profile: TopicProfile,
+        words: list[str],
+        prompt: str,
+    ) -> list[NarrationSegment]:
+        joined_words = ", ".join(words)
+        meaning_intro = self._meaning_intro(self._meaning_list(profile, words))
+        student_name = self._extract_requested_name(prompt) or "Bruno"
+        chunks = {
+            1: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Olá, turma. Hoje a nossa aula é sobre apresentações. "
+                        f"Primeiro vamos entender o significado: {meaning_intro}"
+                    ),
+                ),
+                NarrationSegment(language="en-US", text="Let's learn: my name is, what is your name, nice to meet you."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Agora escute a forma em inglês e repita como se estivesse conhecendo um novo amigo.",
+                ),
+            ],
+            2: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Quando eu quero dizer meu nome em inglês, posso falar meu nome é "
+                        f"ou eu sou {student_name}."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"My name is {student_name}. I am {student_name}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Perceba que as duas frases servem para se apresentar de um jeito simples e natural.",
+                ),
+            ],
+            3: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Agora vamos praticar um diálogo de apresentação. "
+                        "Primeiro o professor pergunta o nome, depois o aluno responde."
+                    ),
+                ),
+                NarrationSegment(language="en-US", speaker="teacher", text="Hello. What is your name?"),
+                NarrationSegment(language="en-US", speaker="student", text=f"I am {student_name}. Nice to meet you."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Muito bem. Nesse diálogo, o professor perguntou como você se chama. "
+                        f"Depois o aluno respondeu eu sou {student_name} e muito prazer."
+                    ),
+                ),
+            ],
+            4: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Agora pense no significado em português: {meaning_intro} "
+                        "Eu vou mostrar mais uma forma curtinha de se apresentar."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"My name is {student_name}. Nice to meet you."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Escute com calma, repita em voz alta e imagine que está falando com um colega novo.",
+                ),
+            ],
+            5: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Jogo rápido. Eu pergunto o nome em inglês e você responde antes de ouvir o modelo.",
+                ),
+                NarrationSegment(language="en-US", text=f"What is your name? I am {student_name}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Boa. Você está treinando pergunta e resposta como em uma conversa real.",
+                ),
+            ],
+            6: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Agora vamos usar a apresentação em uma frase de sala de aula, com professor e aluno.",
+                ),
+                NarrationSegment(language="en-US", speaker="teacher", text="My name is Teacher Leo."),
+                NarrationSegment(language="en-US", speaker="student", text=f"I am {student_name}. Nice to meet you."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Aqui o professor disse meu nome é Teacher Leo. "
+                        f"Depois o aluno respondeu eu sou {student_name} e muito prazer."
+                    ),
+                ),
+            ],
+            7: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Na historinha, cada personagem vai dizer o nome quando encontrar um novo amigo.",
+                ),
+                NarrationSegment(language="en-US", text=f"Hello. My name is {student_name}. Nice to meet you."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Aponte para a cena quando ouvir a apresentação em inglês.",
+                ),
+            ],
+            8: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Mexa o corpo comigo. Quando eu falar a frase em inglês, você aponta para si e repete.",
+                ),
+                NarrationSegment(language="en-US", text=f"Point to yourself and say: I am {student_name}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Falar e fazer gestos ao mesmo tempo ajuda a guardar a estrutura da frase.",
+                ),
+            ],
+            9: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Quiz. Eu vou perguntar o nome e você responde com a frase correta em inglês.",
+                ),
+                NarrationSegment(language="en-US", text=f"What is your name? My name is {student_name}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bom. Agora vamos para mais uma rodada de apresentação.",
+                ),
+            ],
+            10: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Agora a segunda rodada do quiz vai mais rápido, como em uma revisão de professor.",
+                ),
+                NarrationSegment(language="en-US", text=f"I am {student_name}. Nice to meet you."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Excelente. Você já consegue se apresentar de um jeito simples em inglês.",
+                ),
+            ],
+            11: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Vamos revisar. Em português, trabalhamos estes significados: {meaning_intro} "
+                        "Agora repita tudo em inglês como no final de uma aula."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"Repeat with me: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Essa repetição final deixa a apresentação pronta para o dia a dia.",
+                ),
+            ],
+            12: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Nossa aula terminou. Guarde a regra principal: diga seu nome e depois cumprimente a outra pessoa.",
+                ),
+                NarrationSegment(language="en-US", text=f"My name is {student_name}. Nice to meet you. Goodbye."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Tchau, turma. Na próxima aula o professor volta com novas frases e novos diálogos.",
                 ),
             ],
         }
@@ -619,6 +843,10 @@ class LessonPlanner:
             requested = self._extract_requested_greetings(prompt)
             if requested:
                 return self._pad_vocabulary(requested, profile.vocabulary)
+        if profile.key == "introductions":
+            requested = self._extract_requested_introductions(prompt)
+            if requested:
+                return self._pad_vocabulary(requested, profile.vocabulary)
         return profile.vocabulary
 
     def _primary_vocabulary(self, profile: TopicProfile, prompt: str, selected: list[str]) -> list[str]:
@@ -626,16 +854,20 @@ class LessonPlanner:
             requested = self._extract_requested_greetings(prompt)
             if requested:
                 return requested
+        if profile.key == "introductions":
+            requested = self._extract_requested_introductions(prompt)
+            if requested:
+                return requested
         return selected[:3]
 
     def _extract_requested_greetings(self, prompt: str) -> list[str]:
-        lowered = prompt.lower()
+        lowered = self._normalize_lookup_text(prompt)
         ordered: list[str] = []
         greeting_map = (
             (("bom dia", "good morning"), "good morning"),
             (("boa tarde", "good afternoon"), "good afternoon"),
             (("boa noite", "good evening", "good night"), "good night"),
-            (("oi", "olá", "ola", "hello"), "hello"),
+            (("oi", "ola", "hello"), "hello"),
             (("tchau", "adeus", "goodbye", "bye"), "goodbye"),
             (("por favor", "please"), "please"),
             (("obrigado", "obrigada", "thank you"), "thank you"),
@@ -644,6 +876,31 @@ class LessonPlanner:
         for aliases, normalized in greeting_map:
             if any(alias in lowered for alias in aliases) and normalized not in ordered:
                 ordered.append(normalized)
+
+        return ordered
+
+    def _extract_requested_introductions(self, prompt: str) -> list[str]:
+        lowered = self._normalize_lookup_text(prompt)
+        ordered: list[str] = []
+        introduction_map = (
+            (("meu nome", "my name is"), "my name is"),
+            (
+                ("como voce chama", "como voce se chama", "como voc chama", "qual e o seu nome", "qual seu nome", "what is your name", "what s your name"),
+                "what is your name",
+            ),
+            (("muito prazer", "nice to meet you", "prazer em conhecer"), "nice to meet you"),
+        )
+
+        for aliases, normalized in introduction_map:
+            if any(alias in lowered for alias in aliases) and normalized not in ordered:
+                ordered.append(normalized)
+
+        requested_name = self._extract_requested_name(prompt)
+        insert_at = 2 if len(ordered) >= 2 else len(ordered)
+        if requested_name is not None:
+            ordered.insert(insert_at, f"i am {requested_name.lower()}")
+        elif any(alias in lowered for alias in ("eu sou", "eeu sou", "me chamo", "i am")):
+            ordered.insert(insert_at, "i am")
 
         return ordered
 
@@ -656,7 +913,10 @@ class LessonPlanner:
                 break
         return merged
 
-    def _build_vocabulary_groups(self, vocabulary: list[str], primary: list[str]) -> list[list[str]]:
+    def _build_vocabulary_groups(self, vocabulary: list[str], primary: list[str], scene_count: int) -> list[list[str]]:
+        if len(vocabulary) > 6:
+            return self._build_balanced_vocabulary_groups(vocabulary, scene_count, max_group_size=3)
+
         if not primary:
             primary = vocabulary[:3]
 
@@ -672,6 +932,28 @@ class LessonPlanner:
 
         return [vocabulary[:3], vocabulary[3:6], vocabulary[:2], vocabulary[2:4], vocabulary[4:6], vocabulary]
 
+    def _build_balanced_vocabulary_groups(
+        self,
+        vocabulary: list[str],
+        scene_count: int,
+        max_group_size: int,
+    ) -> list[list[str]]:
+        if not vocabulary:
+            return [[]]
+
+        group_count = min(scene_count, max(1, math.ceil(len(vocabulary) / max_group_size)))
+        base_size, remainder = divmod(len(vocabulary), group_count)
+        groups: list[list[str]] = []
+        cursor = 0
+
+        for group_index in range(group_count):
+            size = base_size + (1 if group_index < remainder else 0)
+            size = min(size, max_group_size)
+            groups.append(vocabulary[cursor : cursor + size])
+            cursor += size
+
+        return groups or [vocabulary[:max_group_size]]
+
     def _meaning_intro(self, meanings: list[str]) -> str:
         if not meanings:
             return "vamos aprender juntos."
@@ -685,14 +967,37 @@ class LessonPlanner:
         return [self._translation(profile, word) for word in words]
 
     def _translation(self, profile: TopicProfile, word: str) -> str:
+        lowered = word.lower()
+        if lowered.startswith("i am "):
+            return f"eu sou {word[5:]}"
+        if lowered.startswith("my name is "):
+            return f"meu nome é {word[11:]}"
         return profile.translations.get(word.lower(), word)
 
     def _pick_topic(self, prompt: str) -> TopicProfile:
-        lowered = prompt.lower()
+        lowered = self._normalize_lookup_text(prompt)
+        best_profile: TopicProfile | None = None
+        best_score = 0
         for profile in TOPIC_PROFILES:
-            if any(token in lowered for token in profile.matches):
-                return profile
+            score = sum(1 for token in profile.matches if self._normalize_lookup_text(token) in lowered)
+            if score > best_score:
+                best_profile = profile
+                best_score = score
+        if best_profile is not None:
+            return best_profile
         return TOPIC_PROFILES[3]
+
+    def _extract_requested_name(self, prompt: str) -> str | None:
+        lowered = self._normalize_lookup_text(prompt)
+        match = re.search(r"(?:eu sou|eeu sou|me chamo|i am)\s+([a-z]{2,20})\b", lowered)
+        if match is None:
+            return None
+        return match.group(1).title()
+
+    def _normalize_lookup_text(self, text: str) -> str:
+        lowered = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
+        lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+        return " ".join(lowered.split())
 
     def _normalize_plan(self, plan: LessonPlan, request: RenderRequest) -> LessonPlan:
         target_seconds = request.duration_minutes * 60
