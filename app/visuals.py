@@ -212,33 +212,27 @@ class TemplateVisualRenderer:
         draw.ellipse((28, 198, 312, 330), fill=(250, 204, 21, 42))
         draw.ellipse((168, 24, 290, 126), fill=(103, 232, 249, 34))
         draw.ellipse((16, 52, 112, 128), fill=(244, 114, 182, 28))
+        draw.ellipse((220, 92, 312, 176), fill=(251, 191, 36, 24))
+        draw.arc((196, 58, 304, 166), start=230, end=28, fill="#F59E0B", width=6)
+        draw.arc((34, 110, 132, 208), start=318, end=90, fill="#60A5FA", width=6)
+        for x, y, radius, fill in (
+            (246, 82, 10, "#F9A8D4"),
+            (282, 118, 8, "#FACC15"),
+            (62, 156, 6, "#10B981"),
+            (258, 206, 6, "#2563EB"),
+        ):
+            draw.ellipse((x, y, x + radius, y + radius), fill=fill)
         self._draw_bits_space_bot(
             draw,
             center_x=170,
-            base_y=266,
-            scale=1.0,
+            base_y=270,
+            scale=1.06,
             shell_fill="#FEF3C7",
             trim_fill="#F59E0B",
             panel_fill="#93C5FD",
             visor_fill="#0F172A",
             eye_fill="#67E8F9",
         )
-
-        chip_left = 92
-        chip_top = 36
-        self._draw_elevated_panel(
-            draw,
-            (chip_left, chip_top, chip_left + 104, chip_top + 108),
-            radius=20,
-            fill=(219, 234, 254, 228),
-            shadow_offset=(0, 8),
-        )
-        draw.rounded_rectangle((chip_left + 14, chip_top + 14, chip_left + 32, chip_top + 94), radius=7, fill="#60A5FA")
-        for line_y in (chip_top + 28, chip_top + 46, chip_top + 64, chip_top + 82):
-            draw.line((chip_left + 44, line_y, chip_left + 82, line_y), fill="#60A5FA", width=4)
-        draw.line((206, 118, 244, 98), fill="#F59E0B", width=8)
-        draw.polygon([(244, 98), (278, 112), (244, 124)], fill="#FACC15", outline="#F59E0B")
-        draw.ellipse((198, 102, 216, 120), fill="#F9A8D4", outline="#EC4899", width=3)
 
         companion_x = int(width * 0.065)
         companion_y = int(height * 0.335)

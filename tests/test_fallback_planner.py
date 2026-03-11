@@ -120,6 +120,24 @@ def test_render_scene_shows_lesson_theme_and_removes_footer_bar(tmp_path: Path) 
     assert bottom_pixel != (15, 23, 42)
 
 
+def test_scene_companion_keeps_robot_face_visible(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 1 minuto sobre contar em ingles para criancas.",
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    output_path = tmp_path / "scene-companion.png"
+    renderer.render_scene(plan.scenes[0], output_path, scene_index=1, request=request)
+
+    image = Image.open(output_path)
+
+    assert image.getpixel((294, 452)) == (15, 23, 42)
+
+
 def test_dialogue_scene_renders_two_characters_with_exchange_bubbles(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
