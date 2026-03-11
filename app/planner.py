@@ -248,12 +248,15 @@ ENGLISH_HINT_WORDS = {
     "down",
     "eraser",
     "fine",
+    "friday",
     "find",
     "friend",
     "good",
     "happy",
+    "her",
     "hello",
     "how",
+    "his",
     "i",
     "im",
     "is",
@@ -275,18 +278,26 @@ ENGLISH_HINT_WORDS = {
     "show",
     "six",
     "sit",
+    "sunny",
     "stand",
+    "sunday",
+    "thursday",
     "ten",
     "thank",
     "today",
     "tuesday",
     "up",
     "very",
+    "weather",
     "wednesday",
     "what",
+    "windy",
     "years",
     "you",
     "your",
+    "cloudy",
+    "rainy",
+    "saturday",
 }
 
 WEAK_ENGLISH_HINT_WORDS = {
@@ -349,6 +360,17 @@ COMMON_CUSTOM_TRANSLATIONS = {
     "answer": "responder",
     "sit down": "sentar",
     "stand up": "levantar",
+    "sunny": "ensolarado",
+    "rainy": "chuvoso",
+    "cloudy": "nublado",
+    "windy": "ventando",
+    "monday": "segunda-feira",
+    "tuesday": "terca-feira",
+    "wednesday": "quarta-feira",
+    "thursday": "quinta-feira",
+    "friday": "sexta-feira",
+    "saturday": "sabado",
+    "sunday": "domingo",
 }
 
 PORTUGUESE_HINT_WORDS = {
@@ -374,6 +396,61 @@ PORTUGUESE_HINT_WORDS = {
     "video",
     "visual",
     "voce",
+}
+
+CUSTOM_PROMPT_PORTUGUESE_STOPWORDS = {
+    "a",
+    "ao",
+    "aos",
+    "as",
+    "com",
+    "como",
+    "comparacao",
+    "comparação",
+    "crianca",
+    "criancas",
+    "crianca",
+    "crianças",
+    "da",
+    "das",
+    "de",
+    "dele",
+    "dela",
+    "diferenca",
+    "diferença",
+    "do",
+    "dos",
+    "e",
+    "em",
+    "ensinar",
+    "entre",
+    "exemplo",
+    "exemplos",
+    "explicar",
+    "frase",
+    "frases",
+    "menina",
+    "menino",
+    "nome",
+    "objetivo",
+    "ou",
+    "outra",
+    "outras",
+    "outras",
+    "palavra",
+    "palavras",
+    "para",
+    "perguntar",
+    "pessoa",
+    "praticar",
+    "responder",
+    "semelhante",
+    "simples",
+    "sobre",
+    "tema",
+    "usar",
+    "usando",
+    "verbos",
 }
 
 ENGLISH_META_PHRASES = (
@@ -457,9 +534,9 @@ class LessonPlanner:
         self.settings = settings
 
     def generate(self, request: RenderRequest) -> LessonPlan:
-        local_profile, local_score = self._pick_topic_match(request.prompt)
-        if request.planner_mode == "auto" and local_profile is not None and local_score > 0:
-            return self._normalize_plan(self._generate_fallback(request, profile=local_profile), request)
+        profile, local_score = self._choose_topic_profile(request.prompt)
+        if request.planner_mode == "auto" and profile is not None and profile.key != "custom" and local_score > 0:
+            return self._normalize_plan(self._generate_fallback(request, profile=profile), request)
 
         if self.settings.use_ollama and request.planner_mode != "local":
             try:
@@ -468,7 +545,7 @@ class LessonPlanner:
             except Exception as exc:  # pragma: no cover
                 logger.warning("Falling back to local planner: %s", exc)
 
-        return self._normalize_plan(self._generate_fallback(request, profile=local_profile), request)
+        return self._normalize_plan(self._generate_fallback(request, profile=profile), request)
 
     def _generate_with_ollama(self, request: RenderRequest) -> LessonPlan:
         schema = LessonPlan.model_json_schema()
@@ -523,18 +600,24 @@ class LessonPlanner:
         groups = self._build_vocabulary_groups(profile, vocabulary, primary_vocabulary, scene_count)
         scenes: list[LessonScene] = []
 
-        for index, (scene_title, badge, decor) in enumerate(SCENE_BLUEPRINTS[:scene_count], start=1):
+        for index in range(1, scene_count + 1):
+            scene_title, badge, decor = self._scene_blueprint(index, scene_count)
             current_words = groups[(index - 1) % len(groups)]
-            teaching_mode = self._scene_teaching_mode(index, profile=profile)
-            narration = self._build_scene_narration(index, profile, current_words, request.prompt)
+            teaching_mode = self._scene_teaching_mode(index, profile=profile, total_scenes=scene_count)
+            narration = self._build_scene_narration(index, profile, current_words, request.prompt, total_scenes=scene_count)
             display_words = self._display_words_for_scene(
                 profile=profile,
                 teaching_mode=teaching_mode,
                 current_words=current_words,
                 full_vocabulary=vocabulary,
                 narration=narration,
+                scene_index=index,
+                total_scenes=scene_count,
             )
             card_details = self._card_details_for_scene(profile, display_words)
+            on_screen_text = [badge, *[self._display_phrase_case(word) for word in display_words]]
+            if self._is_final_quiz_scene_index(index, scene_count):
+                on_screen_text = [badge, "Listen to the phrase", "5 segundos", "Pense e responda"]
             scenes.append(
                 LessonScene(
                     scene_id=f"scene-{index:02d}",
@@ -546,7 +629,7 @@ class LessonPlanner:
                         f"big shapes, educational video frame about {profile.focus}, male english teacher guiding students"
                     ),
                     narration=narration,
-                    on_screen_text=[badge, *[self._display_phrase_case(word) for word in display_words]],
+                    on_screen_text=on_screen_text,
                     vocabulary=display_words,
                     card_details=card_details,
                     background_palette=self._palette_for_scene(index),
@@ -573,7 +656,22 @@ class LessonPlanner:
             scenes=scenes,
         )
 
-    def _scene_teaching_mode(self, scene_index: int, profile: TopicProfile | None = None) -> str:
+    def _scene_blueprint(self, scene_index: int, total_scenes: int) -> tuple[str, str, str]:
+        if self._is_final_quiz_scene_index(scene_index, total_scenes):
+            return ("Quiz Final", "Ouça e responda", "game show classroom with countdown timer and celebration stars")
+        return SCENE_BLUEPRINTS[scene_index - 1]
+
+    def _is_final_quiz_scene_index(self, scene_index: int, total_scenes: int) -> bool:
+        return total_scenes >= 5 and scene_index == total_scenes
+
+    def _scene_teaching_mode(
+        self,
+        scene_index: int,
+        profile: TopicProfile | None = None,
+        total_scenes: int | None = None,
+    ) -> str:
+        if total_scenes is not None and self._is_final_quiz_scene_index(scene_index, total_scenes):
+            return "game"
         if profile is not None and self._is_custom_command_lesson(profile):
             command_modes = {
                 1: "intro",
@@ -613,7 +711,10 @@ class LessonPlanner:
         profile: TopicProfile,
         words: list[str],
         prompt: str,
+        total_scenes: int | None = None,
     ) -> list[NarrationSegment]:
+        if total_scenes is not None and self._is_final_quiz_scene_index(scene_index, total_scenes):
+            return self._build_final_quiz_scene_narration(profile, words)
         if profile.key == "greetings":
             return self._build_greetings_scene_narration(scene_index, profile, words)
         if profile.key == "introductions":
@@ -800,6 +901,37 @@ class LessonPlanner:
             ],
         }
         return chunks[scene_index]
+
+    def _build_final_quiz_scene_narration(
+        self,
+        profile: TopicProfile,
+        words: list[str],
+    ) -> list[NarrationSegment]:
+        quiz_phrase, quiz_translation = self._final_quiz_content(profile, words, profile.vocabulary)
+        if quiz_translation:
+            reveal_line = f"Se voce pensou que isso significa {quiz_translation}, acertou."
+        else:
+            reveal_line = "Se voce pensou no significado certo, acertou."
+        return [
+            NarrationSegment(
+                language="pt-BR",
+                text=(
+                    "Quiz final. Verifique a tela, ouca a frase em ingles e tente acertar o significado antes da resposta."
+                ),
+            ),
+            NarrationSegment(language="en-US", text=self._ensure_sentence(quiz_phrase)),
+            NarrationSegment(
+                language="pt-BR",
+                text="Agora pense rapido. O contador vai marcar cinco segundos para voce responder.",
+            ),
+            NarrationSegment(language="pt-BR", text="[[pause:5.0]]"),
+            NarrationSegment(language="pt-BR", text=reveal_line),
+            NarrationSegment(language="en-US", text=self._ensure_sentence(quiz_phrase)),
+            NarrationSegment(
+                language="pt-BR",
+                text="Muito bem. Esse foi o desafio final da aula. Ate a proxima.",
+            ),
+        ]
 
     def _build_introductions_scene_narration(
         self,
@@ -1149,7 +1281,7 @@ class LessonPlanner:
         words: list[str],
         prompt: str,
     ) -> list[NarrationSegment]:
-        theme = self._clean_prompt_label(self._extract_lesson_theme(prompt) or profile.focus)
+        theme = self._clean_prompt_label(profile.focus)
         selected_words = [word.strip() for word in (words or profile.vocabulary) if word.strip()]
         if not selected_words:
             selected_words = self._extract_prompt_english_phrases(prompt)[:6]
@@ -1162,12 +1294,18 @@ class LessonPlanner:
         joined_words = ", ".join(selected_words)
         echo_words = self._echo_words(selected_words) or "Repeat after me."
         teacher_line, student_line = self._custom_dialogue_lines(selected_words)
+        meaning_summary = self._translated_meaning_summary(profile, selected_words)
+        teacher_translation = self._translated_english_line(profile, teacher_line)
+        student_translation = self._translated_english_line(profile, student_line)
 
         chunks = {
             1: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Ola, turma. Hoje nossa aula é sobre {theme}. O objetivo principal é {objective}.",
+                    text=(
+                        "Ola, turma. Hoje vamos aprender um novo tema de ingles. "
+                        f"O objetivo principal e {objective}. Primeiro vamos entender o significado e depois praticar juntos."
+                    ),
                 ),
                 NarrationSegment(language="en-US", text=f"Let's learn: {joined_words}."),
                 NarrationSegment(
@@ -1178,31 +1316,40 @@ class LessonPlanner:
             2: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Agora eu vou modelar as frases principais de {theme} em ingles para voce repetir.",
+                    text="Agora eu vou modelar as frases principais da aula em ingles para voce repetir.",
                 ),
                 NarrationSegment(language="en-US", text=f"Repeat after me: {joined_words}."),
                 NarrationSegment(
                     language="pt-BR",
-                    text="Muito bem. Agora vamos repetir mais uma vez.",
+                    text=(
+                        f"Muito bem. Essas frases significam {meaning_summary}. Agora vamos repetir mais uma vez."
+                        if meaning_summary
+                        else "Muito bem. Agora vamos repetir mais uma vez."
+                    ),
                 ),
                 NarrationSegment(language="en-US", text=echo_words),
             ],
             3: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Vamos praticar um dialogo curto sobre {theme}.",
+                    text="Vamos praticar um dialogo curto com as frases do tema de hoje.",
                 ),
                 NarrationSegment(language="en-US", speaker="teacher", text=teacher_line),
                 NarrationSegment(language="en-US", speaker="student", text=student_line),
                 NarrationSegment(
                     language="pt-BR",
-                    text="Muito bem. Primeiro o professor falou e depois o aluno respondeu.",
+                    text=(
+                        f"Muito bem. Primeiro o professor perguntou {teacher_translation}. "
+                        f"Depois o aluno respondeu {student_translation}."
+                        if teacher_translation and student_translation
+                        else "Muito bem. Primeiro o professor falou e depois o aluno respondeu."
+                    ),
                 ),
             ],
             4: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Agora vamos reforcar as palavras e frases mais importantes de {theme}.",
+                    text="Agora vamos reforcar as palavras e frases mais importantes da aula.",
                 ),
                 NarrationSegment(language="en-US", text=f"New words: {joined_words}."),
                 NarrationSegment(
@@ -1213,7 +1360,7 @@ class LessonPlanner:
             5: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Hora do jogo. Pense na resposta correta para {theme} antes de ouvir o modelo.",
+                    text="Hora do jogo. Pense na resposta correta antes de ouvir o modelo.",
                 ),
                 NarrationSegment(language="en-US", text=f"Which one is it? {joined_words}."),
                 NarrationSegment(
@@ -1224,19 +1371,24 @@ class LessonPlanner:
             6: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Mais um dialogo para praticar {theme} em contexto.",
+                    text="Mais um dialogo para praticar o conteudo da aula em contexto.",
                 ),
                 NarrationSegment(language="en-US", speaker="teacher", text=teacher_line),
                 NarrationSegment(language="en-US", speaker="student", text=student_line),
                 NarrationSegment(
                     language="pt-BR",
-                    text="Excelente. Voce ja esta reconhecendo a estrutura principal da aula.",
+                    text=(
+                        f"Excelente. Aqui a pergunta significa {teacher_translation} "
+                        f"e a resposta significa {student_translation}."
+                        if teacher_translation and student_translation
+                        else "Excelente. Voce ja esta reconhecendo a estrutura principal da aula."
+                    ),
                 ),
             ],
             7: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Na historinha, essas palavras aparecem em uma situacao simples de {theme}.",
+                    text="Na historinha, essas palavras aparecem em uma situacao simples do tema de hoje.",
                 ),
                 NarrationSegment(language="en-US", text=f"Look. {joined_words}."),
                 NarrationSegment(
@@ -1247,7 +1399,7 @@ class LessonPlanner:
             8: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Agora mexa o corpo comigo enquanto repete as frases de {theme}.",
+                    text="Agora mexa o corpo comigo enquanto repete as frases da aula.",
                 ),
                 NarrationSegment(language="en-US", text=f"Move and say: {joined_words}."),
                 NarrationSegment(
@@ -1258,7 +1410,7 @@ class LessonPlanner:
             9: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Quiz rapido sobre {theme}. Responda comigo.",
+                    text="Quiz rapido sobre o tema de hoje. Responda comigo.",
                 ),
                 NarrationSegment(language="en-US", text=f"Say it now: {joined_words}."),
                 NarrationSegment(
@@ -1269,7 +1421,7 @@ class LessonPlanner:
             10: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Segunda rodada de pratica para fixar {theme}.",
+                    text="Segunda rodada de pratica para fixar o conteudo da aula.",
                 ),
                 NarrationSegment(language="en-US", text=f"Your turn: {joined_words}."),
                 NarrationSegment(
@@ -1280,7 +1432,7 @@ class LessonPlanner:
             11: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Vamos revisar tudo o que aprendemos sobre {theme}.",
+                    text="Vamos revisar tudo o que aprendemos hoje.",
                 ),
                 NarrationSegment(language="en-US", text=f"Repeat with me: {joined_words}."),
                 NarrationSegment(
@@ -1291,7 +1443,7 @@ class LessonPlanner:
             12: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Nossa aula sobre {theme} terminou. Guarde essas frases para usar na proxima atividade.",
+                    text="Nossa aula terminou. Guarde essas frases para usar na proxima atividade.",
                 ),
                 NarrationSegment(language="en-US", text=f"Very good! {joined_words}. See you soon!"),
                 NarrationSegment(
@@ -1772,6 +1924,22 @@ class LessonPlanner:
         if self._is_custom_command_lesson(profile) and len(vocabulary) >= 8:
             return self._build_command_lesson_groups(vocabulary, scene_count)
 
+        if profile.key == "custom" and len(vocabulary) <= 6:
+            focus_words = vocabulary[:4] or primary[:4]
+            first_pair = focus_words[:2]
+            second_pair = focus_words[2:4] or focus_words[:2]
+            groups = [
+                focus_words,
+                focus_words,
+                first_pair + second_pair,
+                first_pair,
+                second_pair,
+                focus_words,
+            ]
+            while len(groups) < scene_count:
+                groups.append(focus_words)
+            return groups[:scene_count]
+
         if len(vocabulary) > 6:
             max_group_size = 4 if profile.key == "custom" else 3
             return self._build_balanced_vocabulary_groups(vocabulary, scene_count, max_group_size=max_group_size)
@@ -1851,10 +2019,41 @@ class LessonPlanner:
         current_words: list[str],
         full_vocabulary: list[str],
         narration: list[NarrationSegment],
+        scene_index: int | None = None,
+        total_scenes: int | None = None,
     ) -> list[str]:
+        if scene_index is not None and total_scenes is not None and self._is_final_quiz_scene_index(scene_index, total_scenes):
+            quiz_phrase, _quiz_translation = self._final_quiz_content(profile, current_words, full_vocabulary)
+            return [quiz_phrase]
         if profile.key == "age" and teaching_mode != "dialogue":
             return self._age_display_words(current_words, full_vocabulary, narration)
         return current_words
+
+    def _final_quiz_content(
+        self,
+        profile: TopicProfile,
+        current_words: list[str],
+        full_vocabulary: list[str],
+    ) -> tuple[str, str]:
+        ordered_candidates: list[str] = []
+        for word in [*current_words, *full_vocabulary, *profile.vocabulary]:
+            cleaned = self._clean_prompt_label(word)
+            if not cleaned:
+                continue
+            if cleaned.lower() not in {item.lower() for item in ordered_candidates}:
+                ordered_candidates.append(cleaned)
+
+        if not ordered_candidates:
+            return ("Let's learn", "")
+
+        quiz_phrase = next((word for word in ordered_candidates if self._looks_like_question(word)), None)
+        if quiz_phrase is None:
+            quiz_phrase = next((word for word in ordered_candidates if len(word.split()) >= 2), ordered_candidates[0])
+
+        translation = self._translation(profile, quiz_phrase).strip()
+        if self._normalize_lookup_text(translation) == self._normalize_lookup_text(quiz_phrase):
+            translation = ""
+        return quiz_phrase, translation
 
     def _card_details_for_scene(self, profile: TopicProfile, words: list[str]) -> list[str]:
         details: list[str] = []
@@ -1951,6 +2150,31 @@ class LessonPlanner:
     def _meaning_list(self, profile: TopicProfile, words: list[str]) -> list[str]:
         return [self._translation(profile, word) for word in words]
 
+    def _translated_meaning_summary(self, profile: TopicProfile, words: list[str]) -> str:
+        meanings = [self._translated_english_line(profile, word) for word in words]
+        filtered_meanings = [meaning for meaning in meanings if meaning]
+        if not filtered_meanings:
+            return ""
+        return self._meaning_intro(filtered_meanings).rstrip(".!?")
+
+    def _translated_english_line(self, profile: TopicProfile, text: str) -> str:
+        cleaned = self._clean_prompt_label(text)
+        if not cleaned:
+            return ""
+
+        translated_parts: list[str] = []
+        for part in re.split(r"(?<=[.!?])\s+", cleaned):
+            sentence = self._clean_prompt_label(part).rstrip(".!?")
+            if not sentence:
+                continue
+            translated = self._translation(profile, sentence).strip()
+            if not translated:
+                continue
+            if self._normalize_lookup_text(translated) == self._normalize_lookup_text(sentence):
+                continue
+            translated_parts.append(translated.rstrip(".!?"))
+        return self._meaning_intro(translated_parts).rstrip(".!?") if translated_parts else ""
+
     def _echo_words(self, words: list[str]) -> str:
         spoken_words = [word.strip().title() for word in words if word.strip()]
         if not spoken_words:
@@ -1962,6 +2186,24 @@ class LessonPlanner:
         direct_translation = profile.translations.get(lowered)
         if direct_translation is not None:
             return direct_translation
+        normalized_word = self._normalize_lookup_text(word)
+        normalized_translation = profile.translations.get(normalized_word)
+        if normalized_translation is not None:
+            return normalized_translation
+        if lowered.startswith("what's her name") or lowered.startswith("what is her name"):
+            return "qual é o nome dela"
+        if lowered.startswith("what's his name") or lowered.startswith("what is his name"):
+            return "qual é o nome dele"
+        if lowered.startswith("her name's ") or lowered.startswith("her name is "):
+            suffix = word.split(" ", 2)[-1]
+            return f"o nome dela é {suffix}"
+        if lowered.startswith("his name's ") or lowered.startswith("his name is "):
+            suffix = word.split(" ", 2)[-1]
+            return f"o nome dele é {suffix}"
+        if lowered == "her":
+            return "dela"
+        if lowered == "his":
+            return "dele"
         if lowered.startswith("i'm "):
             if lowered.endswith(" years old"):
                 return f"eu tenho {word[4:]}"
@@ -2012,7 +2254,7 @@ class LessonPlanner:
         if theme is None:
             return None
 
-        cleaned_theme = self._clean_prompt_label(theme)
+        cleaned_theme = self._clean_prompt_label(theme).replace('"', "")
         english_phrases = self._extract_prompt_english_phrases(prompt)
         if not english_phrases:
             return None
@@ -2041,11 +2283,20 @@ class LessonPlanner:
         )
 
     def _extract_lesson_objective(self, prompt: str) -> str | None:
-        return self._extract_prompt_section(
+        section = self._extract_prompt_section(
             prompt,
             "objetivo da aula",
             ("estilo visual", "estrutura do video", "estrutura do vídeo", "elementos visuais", "mensagem final", "o video deve", "o vídeo deve"),
         )
+        if section is None:
+            return None
+        lowered = section.lower()
+        for marker in ("estrutura do", "o video deve", "o vídeo deve"):
+            marker_index = lowered.find(marker)
+            if marker_index != -1:
+                section = section[:marker_index]
+                lowered = section.lower()
+        return self._clean_prompt_section_value(section)
 
     def _extract_visual_style(self, prompt: str) -> str | None:
         return self._extract_prompt_section(
@@ -2065,46 +2316,133 @@ class LessonPlanner:
         return self._clean_prompt_label(match.group(1))
 
     def _extract_prompt_section(self, prompt: str, label: str, stop_labels: tuple[str, ...]) -> str | None:
-        lowered = prompt.lower()
-        label_index = lowered.find(label.lower())
+        normalized_prompt, index_map = self._normalize_lookup_with_index_map(prompt)
+        normalized_label = self._normalize_lookup_text(label)
+        label_index = normalized_prompt.find(normalized_label)
         if label_index == -1:
             return None
-        start = label_index + len(label)
+        start_lookup = label_index + len(normalized_label)
+        while start_lookup < len(normalized_prompt) and normalized_prompt[start_lookup] == " ":
+            start_lookup += 1
+        if start_lookup >= len(index_map):
+            return None
+
+        start = index_map[start_lookup]
         while start < len(prompt) and prompt[start] in " :\n\r\t":
             start += 1
 
-        end = len(prompt)
+        end_lookup = len(normalized_prompt)
         for stop_label in stop_labels:
-            stop_index = lowered.find(stop_label.lower(), start)
+            stop_index = normalized_prompt.find(self._normalize_lookup_text(stop_label), start_lookup)
             if stop_index != -1:
-                end = min(end, stop_index)
-        return self._clean_prompt_label(prompt[start:end])
+                end_lookup = min(end_lookup, stop_index)
+
+        end = len(prompt) if end_lookup >= len(index_map) else index_map[end_lookup]
+        section = prompt[start:end]
+        normalized_section, section_index_map = self._normalize_lookup_with_index_map(section)
+        local_end = len(section)
+        for stop_label in stop_labels:
+            stop_index = normalized_section.find(self._normalize_lookup_text(stop_label))
+            if stop_index != -1 and stop_index < len(section_index_map):
+                local_end = min(local_end, section_index_map[stop_index])
+        section = section[:local_end]
+        return self._clean_prompt_section_value(section)
 
     def _extract_prompt_english_phrases(self, prompt: str) -> list[str]:
+        objective_text = self._extract_lesson_objective(prompt)
+        if objective_text:
+            objective_candidates = self._collect_prompt_english_phrases(objective_text)
+            if objective_candidates:
+                return objective_candidates
+
+        focused_sections = [
+            section
+            for section in (
+                self._extract_lesson_theme(prompt),
+                self._extract_about_topic(prompt),
+            )
+            if section
+        ]
+        focused_text = "\n".join(focused_sections)
+        if focused_text:
+            focused_candidates = self._collect_prompt_english_phrases(focused_text)
+            if focused_candidates:
+                return focused_candidates
+        return self._collect_prompt_english_phrases(prompt)
+
+    def _collect_prompt_english_phrases(self, text: str) -> list[str]:
         candidates: list[str] = []
-        for phrase in self._extract_structured_english_list(prompt):
+        for phrase in self._extract_structured_english_list(text):
             self._append_unique_phrase(candidates, phrase)
 
-        for match in re.finditer(r"\"([^\"]+)\"", prompt):
+        for match in re.finditer(r"\"([^\"]+)\"", text):
             self._append_english_phrase(candidates, match.group(1))
 
-        normalized = prompt.replace(" and ", ", ").replace(" e ", ", ")
-        for chunk in re.split(r"[.;:\n]", normalized):
+        normalized = text.replace(" and ", ", ").replace(" e ", ", ")
+        for chunk in re.split(r"[.;:?!\n]", normalized):
             for part in chunk.split(","):
                 if "\"" in part:
                     continue
                 self._append_english_phrase(candidates, part)
-        return candidates
+        return self._prune_redundant_short_phrases(candidates)
 
     def _append_english_phrase(self, phrases: list[str], candidate: str) -> None:
-        cleaned = self._clean_prompt_label(candidate)
+        cleaned = self._trim_prompt_english_candidate(candidate)
         if not cleaned:
             return
         if self._looks_like_english_phrase(cleaned):
             self._append_unique_phrase(phrases, cleaned)
             return
+        if self._looks_like_simple_english_candidate(cleaned):
+            self._append_unique_phrase(phrases, cleaned)
+            return
         for phrase in self._extract_embedded_english_phrases(cleaned):
             self._append_unique_phrase(phrases, phrase)
+
+    def _trim_prompt_english_candidate(self, candidate: str) -> str:
+        cleaned = self._clean_prompt_label(candidate)
+        if not cleaned:
+            return ""
+
+        cleaned = re.sub(
+            r"^(?:ensinar|praticar|mostrar|explicar|comparar|repetir|frases?|palavras?|verbos?|comandos?|entre|e como responder|como responder|responder)\s+",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"\b(?:com exemplos simples|com frases simples|com exemplos|com frases|em ingles|em inglês|para criancas.*|para crianças.*)$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        return self._clean_prompt_label(cleaned)
+
+    def _looks_like_simple_english_candidate(self, phrase: str) -> bool:
+        normalized = self._normalize_lookup_text(phrase)
+        words = normalized.split()
+        if not words or len(words) > 5:
+            return False
+        if any(word in CUSTOM_PROMPT_PORTUGUESE_STOPWORDS or word in PORTUGUESE_HINT_WORDS for word in words):
+            return False
+        if not all(word.isalpha() and len(word) >= 3 for word in words):
+            return False
+        if len(words) >= 2 and not any(word in ENGLISH_HINT_WORDS for word in words):
+            return False
+        return True
+
+    def _prune_redundant_short_phrases(self, phrases: list[str]) -> list[str]:
+        normalized_phrases = [(phrase, self._normalize_lookup_text(phrase)) for phrase in phrases if phrase.strip()]
+        longer_phrases = [normalized for _phrase, normalized in normalized_phrases if len(normalized.split()) >= 2]
+        pruned: list[str] = []
+        for phrase, normalized in normalized_phrases:
+            if (
+                len(normalized.split()) == 1
+                and any(re.search(rf"\b{re.escape(normalized)}\b", longer) for longer in longer_phrases)
+            ):
+                continue
+            self._append_unique_phrase(pruned, phrase)
+        return pruned
 
     def _append_unique_phrase(self, phrases: list[str], candidate: str) -> None:
         lowered = candidate.lower()
@@ -2215,6 +2553,11 @@ class LessonPlanner:
         if not cleaned:
             return ("Let's learn.", "Okay.")
 
+        questions = [phrase for phrase in cleaned if self._looks_like_question(phrase)]
+        answers = [phrase for phrase in cleaned if not self._looks_like_question(phrase)]
+        if questions and answers:
+            return (self._ensure_sentence(questions[0]), self._ensure_sentence(answers[0]))
+
         if len(cleaned) >= 3 and all(self._looks_like_command_phrase(phrase) for phrase in cleaned[:4]):
             midpoint = max(1, math.ceil(min(len(cleaned), 4) / 2))
             teacher_group = cleaned[:midpoint]
@@ -2260,20 +2603,39 @@ class LessonPlanner:
         raw_objective = self._clean_prompt_label(self._extract_lesson_objective(prompt) or f"aprender {theme} em ingles")
         raw_objective = raw_objective.replace('"', "").replace("'", "")
         normalized = self._normalize_lookup_text(raw_objective)
+        extracted_phrases = self._extract_prompt_english_phrases(raw_objective)
+        normalized_selected_words = [self._normalize_lookup_text(word) for word in selected_words if word.strip()]
         if (
             len(raw_objective) > 120
             or ":" in raw_objective
+            or "?" in raw_objective
+            or len(extracted_phrases) >= 2
+            or bool(extracted_phrases)
             or any(marker in normalized for marker in STRUCTURED_ENGLISH_LIST_MARKERS)
         ):
             normalized_theme = self._normalize_lookup_text(theme)
             if any(token in normalized_theme for token in ("comando", "acao", "acoes")):
                 return "aprender e praticar comandos e acoes em ingles"
+            if "nome" in normalized_theme and any(token in normalized_theme for token in ("her", "his")):
+                return "aprender a perguntar e responder o nome de outra pessoa em ingles"
+            if any("her name" in word or "his name" in word for word in normalized_selected_words):
+                return "aprender a perguntar e responder o nome de outra pessoa em ingles"
+            if "dia" in normalized_theme and "semana" in normalized_theme:
+                return "aprender os dias da semana em ingles"
+            if any(token in normalized_theme for token in ("clima", "weather")):
+                return "aprender palavras sobre o clima em ingles"
+            if any(token in normalized_theme for token in ("nome", "apresent")):
+                return "aprender e praticar as frases principais para falar sobre nomes"
             return "aprender e praticar o vocabulario principal desta aula"
         return raw_objective
 
     def _clean_prompt_label(self, text: str) -> str:
         cleaned = " ".join(text.strip().split())
         return cleaned.strip(" -,:;.\"'")
+
+    def _clean_prompt_section_value(self, text: str) -> str:
+        cleaned = " ".join(text.strip().split())
+        return cleaned.strip(" -,:;.")
 
     def _format_custom_title(self, theme: str) -> str:
         words = self._clean_prompt_label(theme).split()
@@ -2290,13 +2652,49 @@ class LessonPlanner:
         return f"{focus} em inglês"
 
     def _pick_topic(self, prompt: str) -> TopicProfile:
-        best_profile, _best_score = self._pick_topic_match(prompt)
-        if best_profile is not None:
-            return best_profile
+        profile, _local_score = self._choose_topic_profile(prompt)
+        return profile
+
+    def _choose_topic_profile(self, prompt: str) -> tuple[TopicProfile, int]:
+        local_profile, local_score = self._pick_topic_match(prompt)
         custom_profile = self._build_custom_topic_profile(prompt)
+        if self._should_prefer_custom_profile(prompt, local_profile, local_score, custom_profile):
+            return custom_profile, local_score  # type: ignore[return-value]
+        if local_profile is not None:
+            return local_profile, local_score
         if custom_profile is not None:
-            return custom_profile
-        return TOPIC_PROFILES[0]
+            return custom_profile, local_score
+        return TOPIC_PROFILES[0], 0
+
+    def _should_prefer_custom_profile(
+        self,
+        prompt: str,
+        local_profile: TopicProfile | None,
+        local_score: int,
+        custom_profile: TopicProfile | None,
+    ) -> bool:
+        if custom_profile is None:
+            return False
+        if local_profile is None or local_score == 0:
+            return True
+
+        if not (self._extract_lesson_theme(prompt) or self._extract_about_topic(prompt)):
+            return False
+
+        local_vocabulary = {self._normalize_lookup_text(word) for word in local_profile.vocabulary}
+        custom_vocabulary = [self._normalize_lookup_text(word) for word in custom_profile.vocabulary if word.strip()]
+        custom_unique_vocabulary = {word for word in custom_vocabulary if word}
+        overlap = len(custom_unique_vocabulary & local_vocabulary)
+
+        if not custom_unique_vocabulary:
+            return False
+        if overlap == 0 and len(custom_unique_vocabulary) >= 2:
+            return True
+        if local_score <= 1 and len(custom_unique_vocabulary) >= 2 and overlap < len(custom_unique_vocabulary):
+            return True
+        if len(custom_unique_vocabulary) >= 4 and overlap * 2 < len(custom_unique_vocabulary):
+            return True
+        return False
 
     def _pick_topic_match(self, prompt: str) -> tuple[TopicProfile | None, int]:
         lowered = self._normalize_lookup_text(self._topic_detection_text(prompt))
@@ -2328,6 +2726,34 @@ class LessonPlanner:
         lowered = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
         lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
         return " ".join(lowered.split())
+
+    def _normalize_lookup_with_index_map(self, text: str) -> tuple[str, list[int]]:
+        normalized_chars: list[str] = []
+        index_map: list[int] = []
+        previous_was_space = True
+
+        for original_index, character in enumerate(text):
+            ascii_text = unicodedata.normalize("NFKD", character).encode("ascii", "ignore").decode("ascii").lower()
+            if not ascii_text:
+                ascii_text = " "
+
+            for normalized_character in ascii_text:
+                if normalized_character.isalnum():
+                    normalized_chars.append(normalized_character)
+                    index_map.append(original_index)
+                    previous_was_space = False
+                else:
+                    if previous_was_space:
+                        continue
+                    normalized_chars.append(" ")
+                    index_map.append(original_index)
+                    previous_was_space = True
+
+        while normalized_chars and normalized_chars[-1] == " ":
+            normalized_chars.pop()
+            index_map.pop()
+
+        return "".join(normalized_chars), index_map
 
     def _apply_pt_br_accents(self, text: str) -> str:
         updated = text
@@ -2381,13 +2807,19 @@ class LessonPlanner:
         candidates: list[str] = []
         for phrase in ENGLISH_META_PHRASES:
             self._add_candidate_phrase(candidates, phrase)
+            for fragment in self._embedded_english_split_fragments(phrase):
+                self._add_candidate_phrase(candidates, fragment)
         for phrase in [*plan_vocabulary, *scene.vocabulary]:
             self._add_candidate_phrase(candidates, phrase)
+            for fragment in self._embedded_english_split_fragments(phrase):
+                self._add_candidate_phrase(candidates, fragment)
         for segment in scene.narration:
             if segment.language != "en-US":
                 continue
             for piece in re.split(r"(?<=[.!?])\s+", segment.text):
                 self._add_candidate_phrase(candidates, piece)
+                for fragment in self._embedded_english_split_fragments(piece):
+                    self._add_candidate_phrase(candidates, fragment)
         return sorted(candidates, key=lambda item: (-len(item), item.lower()))
 
     def _add_candidate_phrase(self, candidates: list[str], phrase: str) -> None:
@@ -2399,7 +2831,10 @@ class LessonPlanner:
             candidates.append(cleaned)
 
     def _split_pt_br_segment(self, segment: NarrationSegment, candidates: list[str]) -> list[NarrationSegment]:
-        pattern = re.compile("|".join(re.escape(candidate) for candidate in candidates), flags=re.IGNORECASE)
+        pattern = re.compile(
+            "|".join(self._candidate_split_pattern(candidate) for candidate in candidates),
+            flags=re.IGNORECASE,
+        )
         pieces: list[NarrationSegment] = []
         cursor = 0
 
@@ -2424,6 +2859,20 @@ class LessonPlanner:
         if after:
             pieces.append(segment.model_copy(update={"text": after}))
         return pieces or [segment]
+
+    def _embedded_english_split_fragments(self, phrase: str) -> list[str]:
+        normalized = self._normalize_lookup_text(phrase)
+        fragments: list[str] = []
+        for word in normalized.split():
+            if word in ENGLISH_HINT_WORDS and word not in WEAK_ENGLISH_HINT_WORDS:
+                self._append_unique_phrase(fragments, word)
+        return fragments
+
+    def _candidate_split_pattern(self, candidate: str) -> str:
+        escaped = re.escape(candidate)
+        prefix = r"(?<![A-Za-z0-9'])" if candidate[:1].isalnum() else ""
+        suffix = r"(?![A-Za-z0-9'])" if candidate[-1:].isalnum() else ""
+        return f"{prefix}{escaped}{suffix}"
 
     def _consume_english_trailing_punctuation(self, text: str, end: int) -> int:
         cursor = end

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import textwrap
 from dataclasses import dataclass
@@ -299,6 +300,8 @@ class VideoComposer:
                     "color=orange@0.95:t=5:"
                     f"enable='between(t,{start:.2f},{end:.2f})'"
                 )
+        if self.visual_renderer.is_final_quiz_scene(scene):
+            filters.extend(self._final_quiz_overlay_filters(scene, duration, subtitles))
 
         return ",".join(filters)
 
@@ -361,6 +364,148 @@ class VideoComposer:
             schedule.append((start, end, subtitle.speaker))
 
         return schedule
+
+    def _final_quiz_overlay_filters(
+        self,
+        scene: LessonScene,
+        duration: float,
+        subtitles: list[NarrationSubtitle],
+    ) -> list[str]:
+        quiz_frame = self.visual_renderer.final_quiz_layout(
+            scene,
+            self.settings.video_width,
+            self.settings.video_height,
+        )
+        if quiz_frame is None:
+            return []
+
+        font_path = self._drawtext_font_path()
+        answer_subtitle = next(
+            (
+                subtitle
+                for subtitle in subtitles
+                if subtitle.language == "pt-BR" and "se voce pensou" in self._normalize_filter_text(subtitle.text)
+            ),
+            None,
+        )
+        english_subtitle = next((subtitle for subtitle in subtitles if subtitle.language == "en-US"), None)
+        answer_start = answer_subtitle.start if answer_subtitle is not None else max(5.4, duration - 3.6)
+        countdown_start = max(0.0, answer_start - 5.0)
+        if english_subtitle is not None:
+            countdown_start = max(countdown_start, english_subtitle.end + 0.08)
+
+        filters: list[str] = []
+        for index, number in enumerate(("5", "4", "3", "2", "1")):
+            start = countdown_start + index
+            end = min(answer_start, start + 1.0)
+            if end <= start:
+                continue
+            filters.append(
+                self._drawtext_filter(
+                    text=number,
+                    x=quiz_frame.timer_left + 62,
+                    y=quiz_frame.timer_top + 74,
+                    fontsize=88,
+                    fontcolor="0x1D4ED8",
+                    start=start,
+                    end=end,
+                    font_path=font_path,
+                    borderw=3,
+                    bordercolor="white",
+                )
+            )
+
+        answer_text = scene.card_details[0] if scene.card_details else "Resposta correta"
+        filters.append(
+            "drawbox="
+            f"x={quiz_frame.answer_left + 20}:y={quiz_frame.answer_top + 12}:"
+            f"w={(quiz_frame.answer_right - quiz_frame.answer_left) - 40}:h={(quiz_frame.answer_bottom - quiz_frame.answer_top) - 24}:"
+            "color=green@0.16:t=fill:"
+            f"enable='gte(t,{answer_start:.2f})'"
+        )
+        filters.append(
+            self._drawtext_filter(
+                text="Acertou?",
+                x=quiz_frame.answer_left + 36,
+                y=quiz_frame.answer_top + 16,
+                fontsize=24,
+                fontcolor="0x15803D",
+                start=answer_start,
+                end=duration,
+                font_path=font_path,
+                borderw=2,
+                bordercolor="white",
+            )
+        )
+        filters.append(
+            self._drawtext_filter(
+                text=f"Resposta: {answer_text}",
+                x=quiz_frame.answer_left + 36,
+                y=quiz_frame.answer_top + 48,
+                fontsize=30,
+                fontcolor="0x0F172A",
+                start=answer_start,
+                end=duration,
+                font_path=font_path,
+                borderw=2,
+                bordercolor="white",
+            )
+        )
+        return filters
+
+    def _drawtext_font_path(self) -> str | None:
+        candidates = [
+            "C:/Windows/Fonts/verdanab.ttf",
+            "C:/Windows/Fonts/verdana.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+        return None
+
+    def _drawtext_filter(
+        self,
+        *,
+        text: str,
+        x: int,
+        y: int,
+        fontsize: int,
+        fontcolor: str,
+        start: float,
+        end: float,
+        font_path: str | None,
+        borderw: int = 0,
+        bordercolor: str = "white",
+    ) -> str:
+        font_part = f"fontfile='{self._escape_drawtext(font_path)}':" if font_path else ""
+        border_part = f":borderw={borderw}:bordercolor={bordercolor}" if borderw else ""
+        return (
+            "drawtext="
+            f"{font_part}"
+            f"text='{self._escape_drawtext(text)}':"
+            f"x={x}:y={y}:fontsize={fontsize}:fontcolor={fontcolor}{border_part}:"
+            f"enable='between(t,{start:.2f},{end:.2f})'"
+        )
+
+    def _escape_drawtext(self, text: str | None) -> str:
+        if not text:
+            return ""
+        return (
+            text.replace("\\", "\\\\")
+            .replace(":", r"\:")
+            .replace("'", r"\'")
+            .replace("%", r"\%")
+            .replace(",", r"\,")
+            .replace("[", r"\[")
+            .replace("]", r"\]")
+        )
+
+    def _normalize_filter_text(self, text: str) -> str:
+        return " ".join(text.lower().split())
 
     def _concat_clips(self, scene_clips: list[Path], output_path: Path, ffmpeg_command: str) -> None:
         concat_file = output_path.parent / "scenes.txt"

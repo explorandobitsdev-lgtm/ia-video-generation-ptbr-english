@@ -39,6 +39,26 @@ class DialogueBubbleFrame:
     bottom: int
 
 
+@dataclass(frozen=True)
+class QuizFrame:
+    panel_left: int
+    panel_top: int
+    panel_right: int
+    panel_bottom: int
+    phrase_left: int
+    phrase_top: int
+    phrase_right: int
+    phrase_bottom: int
+    timer_left: int
+    timer_top: int
+    timer_right: int
+    timer_bottom: int
+    answer_left: int
+    answer_top: int
+    answer_right: int
+    answer_bottom: int
+
+
 NUMBER_BADGES = {
     "one": "1",
     "two": "2",
@@ -133,7 +153,10 @@ class TemplateVisualRenderer:
                 animation_cycle=animation_cycle,
             )
         self._draw_title(draw, scene, width, request)
-        self._draw_cards(draw, scene, width, height)
+        if self.is_final_quiz_scene(scene):
+            self._draw_final_quiz_scene(draw, scene, width, height)
+        else:
+            self._draw_cards(draw, scene, width, height)
         self._draw_narration_panel(draw, scene, width, height)
         return image.convert("RGB")
 
@@ -487,6 +510,100 @@ class TemplateVisualRenderer:
             )
             for index, word in enumerate(visible_cards)
         ]
+
+    def is_final_quiz_scene(self, scene: LessonScene) -> bool:
+        return scene.title.strip().lower().startswith("quiz final")
+
+    def final_quiz_layout(self, scene: LessonScene, width: int, height: int) -> QuizFrame | None:
+        if not self.is_final_quiz_scene(scene):
+            return None
+        return QuizFrame(
+            panel_left=284,
+            panel_top=218,
+            panel_right=1636,
+            panel_bottom=770,
+            phrase_left=360,
+            phrase_top=356,
+            phrase_right=1348,
+            phrase_bottom=560,
+            timer_left=1404,
+            timer_top=318,
+            timer_right=1588,
+            timer_bottom=502,
+            answer_left=360,
+            answer_top=618,
+            answer_right=1560,
+            answer_bottom=706,
+        )
+
+    def _draw_final_quiz_scene(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
+        quiz_frame = self.final_quiz_layout(scene, width, height)
+        if quiz_frame is None:
+            return
+
+        title_font = self._load_font(30, bold=True)
+        helper_font = self._load_font(26, bold=False)
+        phrase_font = self._load_font(44, bold=True)
+        timer_font = self._load_font(22, bold=True)
+        answer_font = self._load_font(24, bold=False)
+        quiz_phrase = self._display_card_text(scene.vocabulary[0]) if scene.vocabulary else "Listen carefully"
+
+        self._draw_elevated_panel(
+            draw,
+            (quiz_frame.panel_left, quiz_frame.panel_top, quiz_frame.panel_right, quiz_frame.panel_bottom),
+            radius=54,
+            fill=(255, 252, 244, 230),
+        )
+        draw.rounded_rectangle(
+            (quiz_frame.panel_left + 34, quiz_frame.panel_top + 26, quiz_frame.panel_left + 334, quiz_frame.panel_top + 82),
+            radius=28,
+            fill="#F97316",
+            outline="#FFFFFF",
+            width=3,
+        )
+        draw.text((quiz_frame.panel_left + 62, quiz_frame.panel_top + 38), "Desafio Final", font=title_font, fill="#FFFFFF")
+        draw.text(
+            (quiz_frame.panel_left + 42, quiz_frame.panel_top + 112),
+            "Ouça a frase em inglês, pense no significado e responda antes do contador terminar.",
+            font=helper_font,
+            fill="#334155",
+        )
+
+        self._draw_elevated_panel(
+            draw,
+            (quiz_frame.phrase_left, quiz_frame.phrase_top, quiz_frame.phrase_right, quiz_frame.phrase_bottom),
+            radius=40,
+            fill=(255, 255, 255, 242),
+        )
+        draw.rounded_rectangle(
+            (quiz_frame.phrase_left + 34, quiz_frame.phrase_top + 24, quiz_frame.phrase_left + 270, quiz_frame.phrase_top + 70),
+            radius=20,
+            fill="#DBEAFE",
+        )
+        draw.text((quiz_frame.phrase_left + 62, quiz_frame.phrase_top + 34), "Listen", font=title_font, fill="#1D4ED8")
+        phrase_lines = self._wrap_text_to_width(draw, quiz_phrase, phrase_font, (quiz_frame.phrase_right - quiz_frame.phrase_left) - 84)[:2]
+        phrase_line_height = self._line_height(draw, phrase_font) + 10
+        phrase_start_y = quiz_frame.phrase_top + 120
+        for line_index, line in enumerate(phrase_lines):
+            draw.text((quiz_frame.phrase_left + 46, phrase_start_y + (line_index * phrase_line_height)), line, font=phrase_font, fill="#0F172A")
+
+        draw.ellipse(
+            (quiz_frame.timer_left, quiz_frame.timer_top, quiz_frame.timer_right, quiz_frame.timer_bottom),
+            fill=(29, 78, 216, 34),
+            outline="#2563EB",
+            width=6,
+        )
+        draw.text((quiz_frame.timer_left + 44, quiz_frame.timer_top + 26), "Tempo", font=timer_font, fill="#1D4ED8")
+        draw.text((quiz_frame.timer_left + 42, quiz_frame.timer_top + 118), "?", font=self._load_font(76, bold=True), fill="#1D4ED8")
+
+        self._draw_elevated_panel(
+            draw,
+            (quiz_frame.answer_left, quiz_frame.answer_top, quiz_frame.answer_right, quiz_frame.answer_bottom),
+            radius=28,
+            fill=(255, 255, 255, 214),
+        )
+        draw.text((quiz_frame.answer_left + 34, quiz_frame.answer_top + 18), "Resposta aparece depois do contador", font=answer_font, fill="#64748B")
+        draw.text((quiz_frame.answer_left + 34, quiz_frame.answer_top + 52), "Pense primeiro e confira no final.", font=answer_font, fill="#0F172A")
 
     def _draw_card_badge(self, draw: ImageDraw.ImageDraw, card: CardFrame) -> None:
         if not card.badge_text:

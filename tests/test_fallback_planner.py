@@ -249,6 +249,36 @@ def test_narration_does_not_pad_scene_audio_to_planned_duration(tmp_path: Path, 
     assert (tmp_path / "scene" / "tail-pad.wav").exists()
 
 
+def test_narration_supports_inline_pause_marker(tmp_path: Path, monkeypatch) -> None:
+    settings = build_settings(tmp_path)
+    narration = NarrationService(settings)
+    scene = LessonScene(
+        scene_id="scene-quiz",
+        title="Quiz Final",
+        duration_seconds=14,
+        teaching_mode="game",
+        visual_prompt="quiz classroom",
+        narration=[
+            NarrationSegment(language="pt-BR", text="Escute a frase."),
+            NarrationSegment(language="en-US", text="What's her name?"),
+            NarrationSegment(language="pt-BR", text="[[pause:5.0]]"),
+            NarrationSegment(language="pt-BR", text="Se voce pensou no significado certo, acertou."),
+        ],
+        vocabulary=["What's her name?"],
+    )
+
+    def fake_run_piper(*, output_path: Path, **_kwargs) -> None:
+        narration._write_silence_wav(output_path, 1.0)
+
+    monkeypatch.setattr(narration, "_run_piper", fake_run_piper)
+
+    result = narration.synthesize_scene(scene, tmp_path / "scene")
+
+    assert result.duration >= 8.2
+    assert len(result.subtitles) == 3
+    assert all("[[pause:" not in subtitle.text for subtitle in result.subtitles)
+
+
 def test_vocabulary_and_echo_scenes_repeat_words_after_prompt(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -466,6 +496,112 @@ def test_fallback_plan_builds_custom_topic_from_structured_verb_list(tmp_path: P
     assert any("sit down" in line and "stand up" in line for line in english_lines)
 
 
+def test_fallback_plan_prefers_custom_profile_for_her_and_his_name_lesson(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um vídeo educacional infantil de inglês para iniciantes com duração aproximada de 2 minutos. "
+            "Tema da aula: Como perguntar e responder o nome de outra pessoa usando her e his em inglês. "
+            "Objetivo da aula: Ensinar a diferença entre \"What's her name?\" e \"What's his name?\" "
+            "e como responder \"Her name's Sara.\" e \"His name's Max.\" "
+            "Estilo visual: pátio escolar colorido com crianças brincando."
+        ),
+        duration_minutes=2,
+    )
+
+    plan = planner.generate(request)
+    first_scene_cards = renderer.card_layout(plan.scenes[0], settings.video_width, settings.video_height)
+    dialogue_english = [segment.text for segment in plan.scenes[2].narration if segment.language == "en-US"]
+    pt_lines = [segment.text.lower() for scene in plan.scenes for segment in scene.narration if segment.language == "pt-BR"]
+    opening_pt = " ".join(segment.text for segment in plan.scenes[0].narration if segment.language == "pt-BR")
+    repetition_pt = " ".join(segment.text.lower() for segment in plan.scenes[1].narration if segment.language == "pt-BR")
+    dialogue_pt = " ".join(segment.text.lower() for segment in plan.scenes[2].narration if segment.language == "pt-BR")
+
+    assert not plan.title.startswith("Apresentações em Inglês")
+    assert plan.vocabulary[:4] == ["What's her name?", "What's his name?", "Her name's Sara", "His name's Max"]
+    assert plan.scenes[0].card_details == [
+        "Qual é o nome dela",
+        "Qual é o nome dele",
+        "O nome dela é Sara",
+        "O nome dele é Max",
+    ]
+    assert [card.detail_text for card in first_scene_cards] == [
+        "Qual é o nome dela",
+        "Qual é o nome dele",
+        "O nome dela é Sara",
+        "O nome dele é Max",
+    ]
+    assert "aprender a perguntar e responder o nome de outra pessoa em inglês" in opening_pt
+    assert all("what's" not in line for line in pt_lines)
+    assert all(" her " not in f" {line} " for line in pt_lines)
+    assert all(" his " not in f" {line} " for line in pt_lines)
+    assert "qual é o nome dela" in repetition_pt
+    assert "o nome dela é sara" in repetition_pt
+    assert "qual é o nome dela" in dialogue_pt
+    assert "o nome dela é sara" in dialogue_pt
+    assert dialogue_english[0] == "What's her name?"
+    assert dialogue_english[1] == "Her name's Sara."
+    assert plan.scenes[-1].title == "Quiz Final"
+    assert plan.scenes[-1].teaching_mode == "game"
+    assert plan.scenes[-1].vocabulary == ["What's her name?"]
+    assert plan.scenes[-1].card_details == ["Qual é o nome dela"]
+    final_pt = " ".join(segment.text.lower() for segment in plan.scenes[-1].narration if segment.language == "pt-BR")
+    assert "cinco segundos" in final_pt
+    assert "se você pensou" in final_pt
+
+
+def test_inline_english_hint_words_are_split_out_of_pt_br_narration(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    scene = LessonScene(
+        scene_id="scene-01",
+        title="Tema",
+        duration_seconds=10,
+        visual_prompt="school yard",
+        narration=[
+            NarrationSegment(
+                language="pt-BR",
+                text="Usamos her para falar de uma menina e his para falar de um menino.",
+            )
+        ],
+        vocabulary=["What's her name?", "What's his name?"],
+    )
+
+    normalized_scene = planner._split_mixed_language_scene(scene, scene.vocabulary)
+    normalized_segments = [(segment.language, segment.text) for segment in normalized_scene.narration]
+
+    assert normalized_segments == [
+        ("pt-BR", "Usamos"),
+        ("en-US", "her"),
+        ("pt-BR", "para falar de uma menina e"),
+        ("en-US", "his"),
+        ("pt-BR", "para falar de um menino."),
+    ]
+
+
+def test_fallback_plan_supports_new_custom_weekdays_theme(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um vídeo educacional infantil de inglês para iniciantes com duração de 2 minutos. "
+            "Tema da aula: Dias da semana em inglês. "
+            "Objetivo da aula: ensinar Monday, Tuesday, Wednesday e Friday com exemplos simples. "
+            "Estilo visual: calendário divertido na sala de aula."
+        ),
+        duration_minutes=2,
+    )
+
+    plan = planner.generate(request)
+    english_lines = [segment.text.lower() for scene in plan.scenes for segment in scene.narration if segment.language == "en-US"]
+
+    assert plan.title.startswith("Dias da Semana em Inglês")
+    assert plan.vocabulary[:4] == ["Monday", "Tuesday", "Wednesday", "Friday"]
+    assert any("monday" in line and "tuesday" in line for line in english_lines)
+
+
 def test_local_planner_restores_pt_br_accents_in_generated_text(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -629,6 +765,53 @@ def test_dialogue_video_highlight_tracks_speaking_character_regions(tmp_path: Pa
     assert "between(t,2.30,3.00)" in filter_chain
     assert "between(t,3.20,4.00)" not in filter_chain
     assert "color=blue@0.10" not in filter_chain
+
+
+def test_final_quiz_video_filter_adds_countdown_and_answer_overlay(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    composer = VideoComposer(settings)
+    scene = LessonScene(
+        scene_id="scene-06",
+        title="Quiz Final",
+        duration_seconds=14,
+        teaching_mode="game",
+        visual_prompt="quiz classroom",
+        narration=[
+            NarrationSegment(language="pt-BR", text="Quiz final."),
+            NarrationSegment(language="en-US", text="What's her name?"),
+            NarrationSegment(language="pt-BR", text="Agora pense rapido."),
+            NarrationSegment(language="pt-BR", text="Se voce pensou que isso significa qual é o nome dela, acertou."),
+        ],
+        vocabulary=["What's her name?"],
+        card_details=["Qual é o nome dela"],
+    )
+
+    filter_chain = composer._build_scene_filter(
+        scene=scene,
+        duration=float(scene.duration_seconds),
+        animated_clip=False,
+        cues=[],
+        subtitles=[
+            NarrationSubtitle(speaker="teacher", language="pt-BR", text="Quiz final.", start=0.0, end=1.2),
+            NarrationSubtitle(speaker="teacher", language="en-US", text="What's her name?", start=1.4, end=2.3),
+            NarrationSubtitle(speaker="teacher", language="pt-BR", text="Agora pense rapido.", start=2.4, end=3.4),
+            NarrationSubtitle(
+                speaker="teacher",
+                language="pt-BR",
+                text="Se voce pensou que isso significa qual é o nome dela, acertou.",
+                start=8.4,
+                end=10.2,
+            ),
+        ],
+        subtitle_path=None,
+    )
+
+    assert "drawtext=" in filter_chain
+    assert "text='5'" in filter_chain
+    assert "text='1'" in filter_chain
+    assert "text='Resposta\\: Qual é o nome dela'" in filter_chain
+    assert "between(t,3.40,4.40)" in filter_chain
+    assert "enable='gte(t,8.40)'" in filter_chain
 
 
 def test_job_store_round_trip(tmp_path: Path) -> None:

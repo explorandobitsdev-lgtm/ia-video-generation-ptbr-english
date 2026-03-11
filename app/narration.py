@@ -59,6 +59,19 @@ class NarrationService:
         focus_words = [word.strip() for word in (scene.vocabulary or scene.on_screen_text[:4]) if word.strip()]
 
         for index, segment in enumerate(scene.narration, start=1):
+            pause_duration = self._pause_marker_seconds(segment.text)
+            if pause_duration is not None:
+                output_path = scene_dir / f"segment-{clip_index:02d}-pause.wav"
+                self._write_silence_wav(
+                    output_path,
+                    pause_duration,
+                    reference_audio=segment_paths[-1] if segment_paths else None,
+                )
+                segment_paths.append(output_path)
+                current_offset += pause_duration
+                clip_index += 1
+                continue
+
             voice = self._voice_for_segment(segment)
             chunks = self._chunk_text(segment.text)
             for chunk_position, chunk in enumerate(chunks, start=1):
@@ -151,9 +164,18 @@ class NarrationService:
         )
 
     def _segment_gap_seconds(self, current: NarrationSegment, next_segment: NarrationSegment) -> float:
+        if self._pause_marker_seconds(current.text) is not None or self._pause_marker_seconds(next_segment.text) is not None:
+            return 0.0
         if current.speaker != next_segment.speaker:
             return self.settings.dialogue_gap_ms / 1000
         return self.settings.narration_gap_ms / 1000
+
+    def _pause_marker_seconds(self, text: str) -> float | None:
+        normalized = " ".join(text.strip().split())
+        match = re.fullmatch(r"\[\[pause:(\d+(?:\.\d+)?)\]\]", normalized, flags=re.IGNORECASE)
+        if match is None:
+            return None
+        return float(match.group(1))
 
     def _scene_end_padding_seconds(self, scene: LessonScene) -> float:
         if scene.teaching_mode == "movement":
