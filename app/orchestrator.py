@@ -53,11 +53,11 @@ class RenderOrchestrator:
         try:
             plan = self.planner.generate(job.request)
             plan, _script_blocks = self.script_writer.prepare(plan, job.request)
+            artifacts = self.video_composer.render(plan, job.request, workdir)
             (workdir / "lesson-plan.json").write_text(
                 plan.model_dump_json(indent=2),
                 encoding="utf-8",
             )
-            artifacts = self.video_composer.render(plan, job.request, workdir)
             job.plan = plan
             job.output_video_path = str(artifacts.video_path)
             job.preview_image_path = str(artifacts.preview_image_path)

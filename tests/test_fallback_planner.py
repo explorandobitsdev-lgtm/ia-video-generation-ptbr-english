@@ -9,7 +9,7 @@ from app.narration import NarrationService
 from app.narration import NarrationSubtitle
 from app.planner import LessonPlanner
 from app.script_writer import ScriptWriter
-from app.schemas import JobStatus, RenderRequest
+from app.schemas import JobStatus, LessonScene, NarrationSegment, RenderRequest
 from app.video import VideoComposer
 from app.visuals import TemplateVisualRenderer
 
@@ -222,6 +222,33 @@ def test_narration_defaults_are_slightly_slower(tmp_path: Path) -> None:
     assert settings.sentence_gap_ms == 255
 
 
+def test_narration_does_not_pad_scene_audio_to_planned_duration(tmp_path: Path, monkeypatch) -> None:
+    settings = build_settings(tmp_path)
+    narration = NarrationService(settings)
+    scene = LessonScene(
+        scene_id="scene-01",
+        title="Boas-vindas",
+        duration_seconds=20,
+        teaching_mode="intro",
+        visual_prompt="children classroom",
+        narration=[
+            NarrationSegment(language="pt-BR", text="Olá, turma."),
+            NarrationSegment(language="en-US", text="Look, find, listen, show."),
+        ],
+    )
+
+    def fake_run_piper(*, output_path: Path, **_kwargs) -> None:
+        narration._write_silence_wav(output_path, 1.0)
+
+    monkeypatch.setattr(narration, "_run_piper", fake_run_piper)
+
+    result = narration.synthesize_scene(scene, tmp_path / "scene")
+
+    assert result.duration < scene.duration_seconds
+    assert (tmp_path / "scene" / "padding.wav").exists() is False
+    assert (tmp_path / "scene" / "tail-pad.wav").exists()
+
+
 def test_vocabulary_and_echo_scenes_repeat_words_after_prompt(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -414,6 +441,9 @@ def test_fallback_plan_builds_custom_topic_from_structured_verb_list(tmp_path: P
     opening_line = " ".join(segment.text for segment in plan.scenes[0].narration if segment.language == "pt-BR")
     first_scene_cards = renderer.card_layout(plan.scenes[0], settings.video_width, settings.video_height)
     third_scene_english = [segment.text.lower() for segment in plan.scenes[2].narration if segment.language == "en-US"]
+    fourth_scene_pt = [segment.text for segment in plan.scenes[3].narration if segment.language == "pt-BR"]
+    seventh_scene_english = [segment.text.lower() for segment in plan.scenes[6].narration if segment.language == "en-US"]
+    seventh_scene_pt = [segment.text.lower() for segment in plan.scenes[6].narration if segment.language == "pt-BR"]
 
     assert plan.title.startswith("Comandos e Ações em Inglês")
     assert plan.vocabulary[:6] == ["look", "find", "listen", "show", "add", "open"]
@@ -422,15 +452,17 @@ def test_fallback_plan_builds_custom_topic_from_structured_verb_list(tmp_path: P
     assert "stand up" in plan.vocabulary
     assert "show significa mostrar" not in [item.lower() for item in plan.vocabulary]
     assert "semelhante a livros didáticos infantis" not in [item.lower() for item in plan.vocabulary]
-    assert "Hoje nossa aula é sobre" in opening_line
-    assert "look find listen" not in opening_line.lower()
-    assert "comandos e ações em inglês" in opening_line.lower()
-    assert "vocabulário principal" not in opening_line.lower()
-    assert not opening_line.rstrip().endswith("como")
+    assert "Hoje vamos aprender comandos e ações em inglês usados na sala de aula." in opening_line
+    assert "o professor usa para orientar a turma" in opening_line.lower()
+    assert "significam olhar, encontrar, escutar e mostrar." in opening_line
     assert plan.scenes[0].vocabulary == ["look", "find", "listen", "show"]
     assert plan.scenes[0].card_details == ["Olhar", "Encontrar", "Escutar", "Mostrar"]
     assert [card.detail_text for card in first_scene_cards] == ["Olhar", "Encontrar", "Escutar", "Mostrar"]
     assert any("ask" in line and "answer" in line for line in third_scene_english)
+    assert fourth_scene_pt[0] == "Agora repita comigo bem devagar. Primeiro eu falo, depois você repete."
+    assert "você está repetindo ações que significam olhar, encontrar, escutar e mostrar." in fourth_scene_pt[1].lower()
+    assert any("open your book" in line and "close your book" in line for line in seventh_scene_english)
+    assert any("usados o tempo todo pelo professor" in line for line in seventh_scene_pt)
     assert any("sit down" in line and "stand up" in line for line in english_lines)
 
 

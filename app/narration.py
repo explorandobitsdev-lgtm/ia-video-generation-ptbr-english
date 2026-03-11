@@ -119,14 +119,15 @@ class NarrationService:
 
         final_audio = scene_dir / f"{slugify(scene.title)}-narration.wav"
         duration = self._concatenate_wavs(segment_paths, final_audio)
-        if duration < scene.duration_seconds:
-            pad_path = scene_dir / "padding.wav"
+        tail_padding = self._scene_end_padding_seconds(scene)
+        if tail_padding > 0:
+            pad_path = scene_dir / "tail-pad.wav"
             self._write_silence_wav(
                 pad_path,
-                scene.duration_seconds - duration,
+                tail_padding,
                 reference_audio=final_audio,
             )
-            padded_audio = scene_dir / f"{slugify(scene.title)}-narration-padded.wav"
+            padded_audio = scene_dir / f"{slugify(scene.title)}-narration-final.wav"
             duration = self._concatenate_wavs([final_audio, pad_path], padded_audio)
             final_audio = padded_audio
         return NarrationResult(
@@ -153,6 +154,13 @@ class NarrationService:
         if current.speaker != next_segment.speaker:
             return self.settings.dialogue_gap_ms / 1000
         return self.settings.narration_gap_ms / 1000
+
+    def _scene_end_padding_seconds(self, scene: LessonScene) -> float:
+        if scene.teaching_mode == "movement":
+            return 0.25
+        if scene.teaching_mode == "dialogue":
+            return 0.22
+        return 0.32
 
     def _run_piper(
         self,

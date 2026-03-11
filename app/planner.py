@@ -525,7 +525,7 @@ class LessonPlanner:
 
         for index, (scene_title, badge, decor) in enumerate(SCENE_BLUEPRINTS[:scene_count], start=1):
             current_words = groups[(index - 1) % len(groups)]
-            teaching_mode = self._scene_teaching_mode(index)
+            teaching_mode = self._scene_teaching_mode(index, profile=profile)
             narration = self._build_scene_narration(index, profile, current_words, request.prompt)
             display_words = self._display_words_for_scene(
                 profile=profile,
@@ -573,7 +573,24 @@ class LessonPlanner:
             scenes=scenes,
         )
 
-    def _scene_teaching_mode(self, scene_index: int) -> str:
+    def _scene_teaching_mode(self, scene_index: int, profile: TopicProfile | None = None) -> str:
+        if profile is not None and self._is_custom_command_lesson(profile):
+            command_modes = {
+                1: "intro",
+                2: "vocabulary",
+                3: "vocabulary",
+                4: "vocabulary",
+                5: "review",
+                6: "review",
+                7: "movement",
+                8: "game",
+                9: "review",
+                10: "review",
+                11: "review",
+                12: "review",
+            }
+            return command_modes.get(scene_index, "review")
+
         scene_modes = {
             1: "intro",
             2: "vocabulary",
@@ -1138,6 +1155,9 @@ class LessonPlanner:
             selected_words = self._extract_prompt_english_phrases(prompt)[:6]
         if not selected_words:
             selected_words = ["repeat after me"]
+        if self._is_custom_command_lesson(profile):
+            return self._build_custom_command_scene_narration(scene_index, profile, selected_words)
+
         objective = self._custom_objective_summary(prompt, theme, selected_words)
         joined_words = ", ".join(selected_words)
         echo_words = self._echo_words(selected_words) or "Repeat after me."
@@ -1277,6 +1297,185 @@ class LessonPlanner:
                 NarrationSegment(
                     language="pt-BR",
                     text="Muito bem. Ate a proxima aula de ingles.",
+                ),
+            ],
+        }
+        return chunks[scene_index]
+
+    def _build_custom_command_scene_narration(
+        self,
+        scene_index: int,
+        profile: TopicProfile,
+        words: list[str],
+    ) -> list[NarrationSegment]:
+        meaning_summary = self._meaning_intro(self._meaning_list(profile, words)).rstrip(".!?")
+        joined_words = ", ".join(words)
+        lesson_label = "comandos e ações em inglês usados na sala de aula"
+
+        chunks = {
+            1: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Olá, turma. Hoje vamos aprender comandos e ações em inglês usados na sala de aula. "
+                        "Essas são palavras que o professor usa para orientar a turma."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Essas primeiras palavras significam {meaning_summary}. "
+                        "Elas aparecem quando precisamos olhar, prestar atenção ou mostrar alguma coisa."
+                    ),
+                ),
+            ],
+            2: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Agora vamos para mais quatro comandos importantes. "
+                        "Eles aparecem quando mexemos nos materiais da aula."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Neste grupo, as ações significam {meaning_summary}. "
+                        "Por exemplo, abrir o livro, fechar o caderno ou pegar um objeto."
+                    ),
+                ),
+            ],
+            3: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Aqui temos outro grupo de comandos que aparecem muito na sala de aula. "
+                        "Eles ajudam a turma a participar e responder."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Agora pense no significado: {meaning_summary}. "
+                        "São ações comuns quando a criança pergunta, responde, senta ou levanta."
+                    ),
+                ),
+            ],
+            4: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Agora repita comigo bem devagar. Primeiro eu falo, depois você repete.",
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Muito bem. Você está repetindo ações que significam {meaning_summary}. "
+                        "Repetir ajuda a guardar a pronúncia."
+                    ),
+                ),
+            ],
+            5: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Vamos repetir de novo para fixar melhor. Enquanto escuta, pense também no significado.",
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Se você entendeu {meaning_summary}, já está acompanhando muito bem a aula.",
+                ),
+            ],
+            6: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Agora eu vou falar os comandos e você pensa no significado em português. "
+                        "Assim a palavra em inglês fica ligada à ação correta."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Se você pensou em {meaning_summary}, acertou.",
+                ),
+            ],
+            7: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Hora da prática. Quando eu falar o comando, faça a ação comigo. "
+                        "Imagine que você está dentro da sala de aula."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text="Stand up, sit down, open your book, close your book."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Muito bem. Agora você já sabe levantar, sentar, abrir e fechar durante a aula. "
+                        "Esses comandos são usados o tempo todo pelo professor."
+                    ),
+                ),
+            ],
+            8: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Vamos revisar mais uma vez como um professor faria em sala. Ouça, entenda e depois fale.",
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Lembre-se: aqui nós praticamos {meaning_summary}.",
+                ),
+            ],
+            9: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Para terminar, ouça mais alguns {lesson_label}. "
+                        "Veja se você consegue entender sozinho."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text="Look, open your book, sit down, stand up. Great job!"),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Hoje você aprendeu comandos usados na sala de aula em inglês e o significado de cada um.",
+                ),
+            ],
+            10: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Última revisão dos comandos principais da aula.",
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Essas palavras significam {meaning_summary}.",
+                ),
+            ],
+            11: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Repita comigo pela última vez.",
+                ),
+                NarrationSegment(language="en-US", text=f"{joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Excelente. Seu ouvido já está reconhecendo esses comandos.",
+                ),
+            ],
+            12: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Nossa aula terminou. Guarde esses comandos para usar na próxima atividade.",
+                ),
+                NarrationSegment(language="en-US", text="Great job. See you in the next English lesson."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Até a próxima aula de inglês.",
                 ),
             ],
         }
@@ -1551,6 +1750,18 @@ class LessonPlanner:
                 break
         return merged
 
+    def _is_custom_command_lesson(self, profile: TopicProfile) -> bool:
+        if profile.key != "custom":
+            return False
+
+        normalized_focus = self._normalize_lookup_text(profile.focus)
+        focus_hints = ("comando", "acao", "acoes", "classroom", "sala de aula")
+        if any(hint in normalized_focus for hint in focus_hints):
+            return True
+
+        command_hits = sum(1 for word in profile.vocabulary if self._looks_like_command_phrase(word))
+        return command_hits >= min(4, len(profile.vocabulary))
+
     def _build_vocabulary_groups(
         self,
         profile: TopicProfile,
@@ -1558,6 +1769,9 @@ class LessonPlanner:
         primary: list[str],
         scene_count: int,
     ) -> list[list[str]]:
+        if self._is_custom_command_lesson(profile) and len(vocabulary) >= 8:
+            return self._build_command_lesson_groups(vocabulary, scene_count)
+
         if len(vocabulary) > 6:
             max_group_size = 4 if profile.key == "custom" else 3
             return self._build_balanced_vocabulary_groups(vocabulary, scene_count, max_group_size=max_group_size)
@@ -1576,6 +1790,37 @@ class LessonPlanner:
             ]
 
         return [vocabulary[:3], vocabulary[3:6], vocabulary[:2], vocabulary[2:4], vocabulary[4:6], vocabulary]
+
+    def _build_command_lesson_groups(self, vocabulary: list[str], scene_count: int) -> list[list[str]]:
+        batches = [vocabulary[index : index + 4] for index in range(0, len(vocabulary), 4)]
+        first_batch = batches[0] if batches else vocabulary[:4]
+        second_batch = batches[1] if len(batches) > 1 else first_batch
+        third_batch = batches[2] if len(batches) > 2 else second_batch
+        lookup = {self._normalize_lookup_text(word): word for word in vocabulary}
+
+        def pick(*candidates: str) -> list[str]:
+            selected: list[str] = []
+            for candidate in candidates:
+                word = lookup.get(self._normalize_lookup_text(candidate))
+                if word is not None and word not in selected:
+                    selected.append(word)
+            return selected
+
+        groups = [
+            first_batch,
+            second_batch,
+            third_batch,
+            pick("look", "find", "listen", "show") or first_batch,
+            pick("open", "close", "sit down", "stand up") or second_batch,
+            pick("ask", "answer", "add", "pick up") or third_batch,
+            pick("stand up", "sit down", "open", "close") or second_batch,
+            pick("look", "show", "ask", "answer") or first_batch,
+            pick("look", "open", "sit down", "stand up") or third_batch,
+        ]
+
+        while len(groups) < scene_count:
+            groups.append(groups[len(groups) % max(len(batches), 1)] if batches else vocabulary[:4])
+        return groups[:scene_count]
 
     def _build_balanced_vocabulary_groups(
         self,

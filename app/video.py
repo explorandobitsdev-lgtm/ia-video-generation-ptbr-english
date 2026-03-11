@@ -74,7 +74,8 @@ class VideoComposer:
                 )
 
             narration_result = self.narration.synthesize_scene(scene, scene_dir, request=request)
-            duration = max(float(scene.duration_seconds), narration_result.duration)
+            duration = narration_result.duration
+            plan.scenes[index - 1] = scene.model_copy(update={"duration_seconds": max(1, int(round(duration)))})
             scene_clip = scene_dir / "scene.mp4"
             self._create_scene_clip(
                 scene=scene,
