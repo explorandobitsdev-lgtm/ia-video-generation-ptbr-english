@@ -119,6 +119,27 @@ def test_render_scene_shows_lesson_theme_and_removes_footer_bar(tmp_path: Path) 
     assert bottom_pixel != (15, 23, 42)
 
 
+def test_dialogue_scene_renders_two_characters_with_exchange_bubbles(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 2 minutos sobre saudacoes em ingles bom dia, boa tarde e boa noite para criancas.",
+        duration_minutes=2,
+    )
+
+    plan = planner.generate(request)
+    output_path = tmp_path / "dialogue-scene.png"
+    renderer.render_scene(plan.scenes[2], output_path, scene_index=3, request=request)
+
+    image = Image.open(output_path)
+
+    assert image.getpixel((372, 770)) == (29, 78, 216)
+    assert image.getpixel((1496, 760)) == (249, 115, 22)
+    assert image.getpixel((520, 520)) == (255, 253, 247)
+    assert image.getpixel((1180, 570)) == (254, 243, 199)
+
+
 def test_scene_companion_frames_are_static(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)

@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config import Settings
-from app.schemas import LessonScene, RenderRequest
+from app.schemas import LessonScene, NarrationSegment, RenderRequest
 
 
 @dataclass(frozen=True)
@@ -108,7 +108,7 @@ class TemplateVisualRenderer:
         self._draw_gradient(draw, width, height, scene.background_palette)
         self._draw_confetti(draw, width, height, scene_index)
         self._draw_hills(draw, width, height, scene.background_palette)
-        if include_companion:
+        if include_companion and scene.teaching_mode != "dialogue":
             self._draw_scene_companion(
                 image,
                 width,
@@ -122,36 +122,63 @@ class TemplateVisualRenderer:
         return image.convert("RGB")
 
     def _draw_gradient(self, draw: ImageDraw.ImageDraw, width: int, height: int, colors: list[str]) -> None:
+        top = self._hex_to_rgb(colors[0])
+        mid = self._hex_to_rgb(colors[min(1, len(colors) - 1)])
+        bottom = self._hex_to_rgb(colors[-1])
         for y in range(height):
             ratio = y / max(height - 1, 1)
-            top = self._hex_to_rgb(colors[0])
-            bottom = self._hex_to_rgb(colors[-1])
-            current = tuple(
-                int(top[channel] * (1 - ratio) + bottom[channel] * ratio)
-                for channel in range(3)
-            )
+            if ratio < 0.56:
+                local_ratio = ratio / 0.56
+                current = tuple(
+                    int(top[channel] * (1 - local_ratio) + mid[channel] * local_ratio)
+                    for channel in range(3)
+                )
+            else:
+                local_ratio = (ratio - 0.56) / 0.44
+                current = tuple(
+                    int(mid[channel] * (1 - local_ratio) + bottom[channel] * local_ratio)
+                    for channel in range(3)
+                )
             draw.line([(0, y), (width, y)], fill=current)
 
     def _draw_confetti(self, draw: ImageDraw.ImageDraw, width: int, height: int, seed: int) -> None:
         rng = random.Random(seed)
-        colors = ["#FFFFFF", "#F97316", "#2563EB", "#10B981", "#EC4899"]
-        for _ in range(42):
-            x = rng.randint(0, width)
-            y = rng.randint(0, int(height * 0.68))
-            radius = rng.randint(5, 16)
+        colors = ["#FFFFFF", "#F97316", "#2563EB", "#10B981", "#EC4899", "#FACC15"]
+        for _ in range(18):
+            x = rng.randint(-30, width + 30)
+            y = rng.randint(26, int(height * 0.66))
+            radius = rng.randint(14, 34)
+            outline = colors[rng.randint(0, len(colors) - 1)]
+            draw.ellipse((x, y, x + radius, y + radius), outline=outline, width=4)
+            core_radius = max(5, radius // 4)
+            core_x = x + rng.randint(4, max(4, radius - core_radius))
+            core_y = y + rng.randint(4, max(4, radius - core_radius))
+            draw.ellipse((core_x, core_y, core_x + core_radius, core_y + core_radius), fill=outline)
+        for _ in range(12):
+            x = rng.randint(24, width - 24)
+            y = rng.randint(24, int(height * 0.7))
+            radius = rng.randint(4, 10)
             fill = colors[rng.randint(0, len(colors) - 1)]
             draw.ellipse((x, y, x + radius, y + radius), fill=fill)
 
     def _draw_hills(self, draw: ImageDraw.ImageDraw, width: int, height: int, colors: list[str]) -> None:
         draw.ellipse(
-            (-140, int(height * 0.72), int(width * 0.55), int(height * 1.25)),
-            fill=colors[1],
+            (-180, int(height * 0.72), int(width * 0.46), int(height * 1.08)),
+            fill=self._hex_to_rgba(colors[1], 170),
         )
         draw.ellipse(
-            (int(width * 0.35), int(height * 0.65), int(width * 1.12), int(height * 1.22)),
-            fill=colors[2],
+            (int(width * 0.64), int(height * 0.7), int(width * 1.12), int(height * 1.08)),
+            fill=self._hex_to_rgba(colors[2], 150),
         )
-        draw.rectangle((0, int(height * 0.74), width, height), fill=colors[1])
+        draw.ellipse(
+            (int(width * 0.24), int(height * 0.18), int(width * 0.8), int(height * 0.82)),
+            fill=(255, 255, 255, 28),
+        )
+        draw.rounded_rectangle(
+            (0, int(height * 0.78), width, height),
+            radius=0,
+            fill=self._hex_to_rgba(colors[1], 150),
+        )
 
     def _draw_scene_companion(
         self,
@@ -259,7 +286,14 @@ class TemplateVisualRenderer:
         theme_left = panel_right - 24
         title_right = panel_right - 28
 
-        draw.rounded_rectangle((panel_left, panel_top, panel_right, panel_bottom), radius=36, fill="#FFFDF7", outline="#FFFFFF", width=3)
+        self._draw_elevated_panel(
+            draw,
+            (panel_left, panel_top, panel_right, panel_bottom),
+            radius=40,
+            fill=(255, 253, 247, 230),
+        )
+        draw.rounded_rectangle((panel_left + 24, panel_bottom - 18, panel_right - 24, panel_bottom - 10), radius=8, fill="#E2E8F0")
+        draw.rounded_rectangle((panel_left + 24, panel_bottom - 18, panel_left + 280, panel_bottom - 10), radius=8, fill="#2563EB")
         draw.rounded_rectangle((badge_left, badge_top, badge_right, badge_bottom), radius=24, fill="#1D4ED8")
         draw.text((badge_left + 22, badge_top + 10), "Kid Class", font=badge_font, fill="#FFFFFF")
         if lesson_theme:
@@ -278,24 +312,28 @@ class TemplateVisualRenderer:
         title_max_width = max(320, title_right - title_x)
         title_font = self._fit_font_to_width(draw, scene.title, bold=True, sizes=[58, 54, 50, 46, 42], max_width=title_max_width)
         title_text = self._truncate_text_to_width(draw, scene.title, title_font, title_max_width)
-        draw.text((title_x, 62), title_text, font=title_font, fill="#111827")
+        draw.text((title_x, 60), title_text, font=title_font, fill="#0F172A")
 
         preview_words = "  |  ".join(scene.on_screen_text[:4]) if scene.on_screen_text else "English time"
         preview_max_width = title_right - title_x
         preview_lines = self._wrap_text_to_width(draw, preview_words, body_font, preview_max_width)
         preview_y = 128
         for line_index, line in enumerate(preview_lines[:2]):
-            draw.text((title_x + 2, preview_y + (line_index * 34)), line, font=body_font, fill="#334155")
+            draw.text((title_x + 2, preview_y + (line_index * 32)), line, font=body_font, fill="#475569")
 
     def _draw_cards(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
-        detail_font = self._load_font(22, bold=False)
+        detail_font = self._load_font(20, bold=False)
         for card in self.card_layout(scene, width, height):
-            draw.rounded_rectangle(
+            self._draw_elevated_panel(
+                draw,
                 (card.left, card.top, card.left + card.width, card.top + card.height),
-                radius=28,
+                radius=30,
                 fill=card.fill,
-                outline="#FFFFFF",
-                width=4,
+            )
+            draw.rounded_rectangle(
+                (card.left + 18, card.top + 18, card.left + card.width - 18, card.top + 32),
+                radius=7,
+                fill="#FFFFFF",
             )
             title_top_padding = 34 if card.badge_text else 0
             if card.badge_text:
@@ -310,7 +348,7 @@ class TemplateVisualRenderer:
             )
             if card.detail_text:
                 detail_y = max(card.top + (110 if card.badge_text else 100), title_bottom + 8)
-                draw.text((card.left + 24, detail_y), card.detail_text, font=detail_font, fill="#475569")
+                draw.text((card.left + 24, detail_y), card.detail_text, font=detail_font, fill="#64748B")
 
         if scene.teaching_mode == "dialogue":
             self._draw_dialogue_scene(draw, scene, width, height)
@@ -335,7 +373,7 @@ class TemplateVisualRenderer:
             gap = 20
             top = 244
             colors = ["#FFFFFF", "#FEF3C7", "#DBEAFE", "#FCE7F3"]
-            detail_text = "Speak with me"
+            detail_text = "Listen • Repeat"
 
         total_width = (len(visible_cards) * card_width) + (max(len(visible_cards) - 1, 0) * gap)
         base_x = int((width - total_width) / 2)
@@ -377,6 +415,65 @@ class TemplateVisualRenderer:
     def _draw_dialogue_scene(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
         label_font = self._load_font(24, bold=True)
         text_font = self._load_font(28, bold=False)
+        teacher_segment, student_segment = self._dialogue_segments(scene)
+
+        if teacher_segment is not None and student_segment is not None:
+            self._draw_dialogue_stage(draw, width, height)
+            teacher_tip = self._draw_dialogue_character(
+                draw,
+                center_x=372,
+                base_y=800,
+                role="teacher",
+                accent="#1D4ED8",
+                shirt_fill="#1D4ED8",
+                shirt_outline="#1E40AF",
+                label="Professor",
+            )
+            student_tip = self._draw_dialogue_character(
+                draw,
+                center_x=1548,
+                base_y=800,
+                role="student",
+                accent="#F97316",
+                shirt_fill="#F97316",
+                shirt_outline="#EA580C",
+                label="Aluno",
+            )
+            draw.line((612, 684, 1298, 684), fill="#FFFFFF", width=6)
+            draw.ellipse((936, 658, 974, 696), fill="#FFFFFF")
+
+            self._draw_dialogue_exchange_bubble(
+                draw=draw,
+                text=teacher_segment.text,
+                speaker_label="Professor",
+                bubble_label="Pergunta",
+                left=216,
+                top=426,
+                right=884,
+                fill_color="#FFFDF7",
+                accent="#1D4ED8",
+                label_font=label_font,
+                text_font=text_font,
+                tail_tip=teacher_tip,
+                tail_side="right",
+            )
+            self._draw_dialogue_exchange_bubble(
+                draw=draw,
+                text=student_segment.text,
+                speaker_label="Aluno",
+                bubble_label="Resposta",
+                left=1040,
+                top=470,
+                right=1710,
+                fill_color="#FEF3C7",
+                accent="#EA580C",
+                label_font=label_font,
+                text_font=text_font,
+                tail_tip=student_tip,
+                tail_side="left",
+            )
+            return
+
         english_lines = [segment for segment in scene.narration if segment.language == "en-US"][:2]
         if len(english_lines) < 2:
             english_lines = [segment for segment in scene.narration[:2]]
@@ -401,6 +498,197 @@ class TemplateVisualRenderer:
                 label_font=label_font,
                 text_font=text_font,
             )
+
+    def _dialogue_segments(self, scene: LessonScene) -> tuple[NarrationSegment | None, NarrationSegment | None]:
+        english_lines = [segment for segment in scene.narration if segment.language == "en-US"]
+        teacher_segment = next((segment for segment in english_lines if segment.speaker == "teacher"), None)
+        student_segment = next((segment for segment in english_lines if segment.speaker == "student"), None)
+        return teacher_segment, student_segment
+
+    def _draw_dialogue_stage(self, draw: ImageDraw.ImageDraw, width: int, height: int) -> None:
+        stage_top = 352
+        stage_bottom = 812
+        self._draw_elevated_panel(
+            draw,
+            (160, stage_top, width - 160, stage_bottom),
+            radius=58,
+            fill=(255, 249, 241, 224),
+        )
+        draw.rounded_rectangle(
+            (220, stage_top + 28, 676, stage_top + 96),
+            radius=34,
+            fill=(219, 234, 254, 220),
+            outline="#FFFFFF",
+            width=3,
+        )
+        draw.rounded_rectangle(
+            (width - 612, stage_top + 28, width - 220, stage_top + 96),
+            radius=34,
+            fill=(255, 237, 213, 220),
+            outline="#FFFFFF",
+            width=3,
+        )
+        banner_font = self._load_font(28, bold=True)
+        draw.text((260, stage_top + 46), "Role Play", font=banner_font, fill="#1E3A8A")
+        draw.text((width - 548, stage_top + 46), "Question + Answer", font=banner_font, fill="#C2410C")
+        draw.rounded_rectangle(
+            (248, stage_top + 126, width - 248, stage_top + 132),
+            radius=3,
+            fill=(255, 255, 255, 145),
+        )
+        draw.ellipse((292, stage_bottom - 126, 652, stage_bottom + 18), fill=(147, 197, 253, 118))
+        draw.ellipse((1270, stage_bottom - 126, 1630, stage_bottom + 18), fill=(244, 114, 182, 92))
+
+    def _draw_dialogue_character(
+        self,
+        draw: ImageDraw.ImageDraw,
+        center_x: int,
+        base_y: int,
+        *,
+        role: str,
+        accent: str,
+        shirt_fill: str,
+        shirt_outline: str,
+        label: str,
+    ) -> tuple[int, int]:
+        skin_fill = "#F8C9A0" if role == "teacher" else "#F7C59F"
+        hair_fill = "#334155" if role == "teacher" else "#7C3AED"
+        glow_fill = self._hex_to_rgba(accent, 28)
+        card_left = center_x - 98
+        card_top = base_y - 196
+        card_right = center_x + 98
+        card_bottom = base_y
+        head_radius = 50
+        head_top = card_top + 26
+        head_bottom = head_top + (head_radius * 2)
+
+        draw.ellipse((center_x - 136, card_top + 84, center_x + 136, card_bottom + 20), fill=glow_fill)
+        self._draw_elevated_panel(
+            draw,
+            (card_left, card_top, card_right, card_bottom),
+            radius=52,
+            fill=(255, 253, 247, 222),
+        )
+        draw.rounded_rectangle(
+            (card_left + 18, card_top + 18, card_right - 18, card_top + 36),
+            radius=9,
+            fill=accent,
+        )
+        draw.ellipse((center_x - 74, card_top + 92, center_x + 74, card_bottom - 18), fill=self._hex_to_rgba(shirt_fill, 34))
+        draw.ellipse(
+            (center_x - head_radius, head_top, center_x + head_radius, head_bottom),
+            fill=skin_fill,
+            outline="#FFFFFF",
+            width=4,
+        )
+        if role == "teacher":
+            draw.pieslice(
+                (center_x - 60, head_top - 10, center_x + 60, head_bottom - 18),
+                start=180,
+                end=360,
+                fill=hair_fill,
+            )
+            draw.rectangle((center_x - 58, head_top + 30, center_x - 40, head_bottom - 24), fill=hair_fill)
+            draw.rectangle((center_x + 40, head_top + 30, center_x + 58, head_bottom - 24), fill=hair_fill)
+        else:
+            draw.ellipse((center_x - 68, head_top - 12, center_x + 68, head_top + 78), fill=hair_fill)
+            draw.polygon(
+                [
+                    (center_x - 66, head_top + 48),
+                    (center_x - 24, head_top + 10),
+                    (center_x + 16, head_top + 48),
+                    (center_x + 64, head_top + 18),
+                    (center_x + 66, head_top + 86),
+                    (center_x - 66, head_top + 86),
+                ],
+                fill=hair_fill,
+            )
+
+        eye_y = head_top + 54
+        draw.ellipse((center_x - 28, eye_y, center_x - 10, eye_y + 16), fill="#0F172A")
+        draw.ellipse((center_x + 10, eye_y, center_x + 28, eye_y + 16), fill="#0F172A")
+        draw.arc(
+            (center_x - 28, head_top + 76, center_x + 28, head_top + 114),
+            start=20,
+            end=160,
+            fill="#B45309",
+            width=4,
+        )
+        draw.ellipse((center_x - 54, head_top + 68, center_x - 40, head_top + 84), fill="#FCA5A5")
+        draw.ellipse((center_x + 40, head_top + 68, center_x + 54, head_top + 84), fill="#FCA5A5")
+        draw.rounded_rectangle(
+            (center_x - 64, card_top + 118, center_x + 64, card_bottom - 36),
+            radius=34,
+            fill=shirt_fill,
+            outline=shirt_outline,
+            width=4,
+        )
+        draw.arc(
+            (center_x - 54, card_top + 124, center_x + 54, card_top + 196),
+            start=180,
+            end=360,
+            fill="#FFFFFF",
+            width=4,
+        )
+
+        label_font = self._load_font(22, bold=True)
+        label_width = self._text_width(draw, label, label_font) + 44
+        label_left = center_x - int(label_width / 2)
+        label_top = card_bottom - 66
+        self._draw_elevated_panel(
+            draw,
+            (label_left, label_top, label_left + label_width, label_top + 48),
+            radius=20,
+            fill=accent,
+        )
+        draw.text((label_left + 22, label_top + 10), label, font=label_font, fill="#FFFFFF")
+        return center_x + (74 if role == "teacher" else -74), card_top + 70
+
+    def _draw_dialogue_exchange_bubble(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        speaker_label: str,
+        bubble_label: str,
+        left: int,
+        top: int,
+        right: int,
+        fill_color: str,
+        accent: str,
+        label_font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+        text_font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+        tail_tip: tuple[int, int],
+        tail_side: str,
+    ) -> int:
+        wrapped = self._wrap_text_to_width(draw, text, text_font, (right - left) - 60)[:3]
+        line_height = self._line_height(draw, text_font) + 4
+        bubble_height = max(154, 102 + (len(wrapped) * line_height))
+        bottom = top + bubble_height
+
+        if tail_side == "right":
+            tail = [(right - 88, bottom - 18), (right - 14, bottom - 46), tail_tip]
+        else:
+            tail = [(left + 88, bottom - 18), (left + 14, bottom - 46), tail_tip]
+        draw.polygon(tail, fill=fill_color)
+        self._draw_elevated_panel(
+            draw,
+            (left, top, right, bottom),
+            radius=34,
+            fill=fill_color,
+        )
+        draw.rounded_rectangle((left + 24, top + 18, right - 24, top + 26), radius=4, fill="#FFFFFF")
+
+        bubble_label_width = self._text_width(draw, bubble_label, label_font) + 44
+        draw.rounded_rectangle((left + 24, top + 18, left + 24 + bubble_label_width, top + 58), radius=18, fill=accent)
+        draw.text((left + 44, top + 26), bubble_label, font=label_font, fill="#FFFFFF")
+
+        speaker_font = self._load_font(22, bold=True)
+        draw.text((left + 30, top + 74), speaker_label, font=speaker_font, fill=accent)
+
+        text_y = top + 108
+        for line_index, line in enumerate(wrapped):
+            draw.text((left + 28, text_y + (line_index * line_height)), line, font=text_font, fill="#0F172A")
+        return bottom
 
     def _draw_dialogue_bubble(
         self,
@@ -432,29 +720,59 @@ class TemplateVisualRenderer:
 
     def _draw_narration_panel(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
         panel_left = 68
-        panel_top = height - (258 if scene.teaching_mode == "dialogue" else 214)
+        panel_top = 846 if scene.teaching_mode == "dialogue" else 838
         panel_right = width - 68
-        panel_bottom = height - 88
-        draw.rounded_rectangle(
+        panel_bottom = 1022 if scene.teaching_mode == "dialogue" else 1004
+        self._draw_elevated_panel(
+            draw,
             (panel_left, panel_top, panel_right, panel_bottom),
-            radius=34,
-            fill="#FFFDF7",
-            outline="#FFFFFF",
-            width=4,
+            radius=36,
+            fill=(255, 253, 247, 232),
         )
 
-        panel_font = self._load_font(24, bold=False)
+        panel_font = self._load_font(22 if scene.teaching_mode == "dialogue" else 24, bold=False)
         text = self._narration_panel_text(scene)
         wrapped = self._wrap_text_to_width(draw, text, panel_font, panel_right - panel_left - 56)
         line_height = self._line_height(draw, panel_font) + 4
-        start_y = panel_top + 20
+        start_y = panel_top + 22
         if scene.teaching_mode == "dialogue":
             badge_font = self._load_font(22, bold=True)
             draw.rounded_rectangle((panel_left + 24, panel_top + 18, panel_left + 270, panel_top + 58), radius=18, fill="#1D4ED8")
             draw.text((panel_left + 42, panel_top + 26), "Professor explica", font=badge_font, fill="#FFFFFF")
-            start_y = panel_top + 72
-        for line_index, line in enumerate(wrapped[:3]):
+            start_y = panel_top + 70
+        visible_lines = wrapped[:2] if scene.teaching_mode == "dialogue" else wrapped[:3]
+        for line_index, line in enumerate(visible_lines):
             draw.text((panel_left + 28, start_y + (line_index * line_height)), line, font=panel_font, fill="#0F172A")
+
+    def _draw_elevated_panel(
+        self,
+        draw: ImageDraw.ImageDraw,
+        box: tuple[int, int, int, int],
+        *,
+        radius: int,
+        fill: str | tuple[int, int, int] | tuple[int, int, int, int],
+        outline: str = "#FFFFFF",
+        outline_width: int = 3,
+        shadow_offset: tuple[int, int] = (0, 12),
+        shadow_fill: tuple[int, int, int, int] = (15, 23, 42, 34),
+    ) -> None:
+        left, top, right, bottom = box
+        shadow_left = left + shadow_offset[0]
+        shadow_top = top + shadow_offset[1]
+        shadow_right = right + shadow_offset[0]
+        shadow_bottom = bottom + shadow_offset[1]
+        draw.rounded_rectangle(
+            (shadow_left, shadow_top, shadow_right, shadow_bottom),
+            radius=radius,
+            fill=shadow_fill,
+        )
+        draw.rounded_rectangle(
+            (left, top, right, bottom),
+            radius=radius,
+            fill=fill,
+            outline=outline,
+            width=outline_width,
+        )
 
     def _load_font(self, size: int, bold: bool) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         candidates = [
@@ -603,3 +921,6 @@ class TemplateVisualRenderer:
     def _hex_to_rgb(self, color: str) -> tuple[int, int, int]:
         color = color.lstrip("#")
         return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
+
+    def _hex_to_rgba(self, color: str, alpha: int) -> tuple[int, int, int, int]:
+        return self._hex_to_rgb(color) + (alpha,)
