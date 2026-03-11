@@ -352,6 +352,7 @@
       const jobId = document.getElementById("job-id");
       const jobOutput = document.getElementById("job-output");
       const downloadLink = document.getElementById("download-link");
+      const visualBackendSelect = document.getElementById("visual-backend");
 
       let pollHandle = null;
 
@@ -444,6 +445,20 @@
         });
       };
 
+      const loadHealth = async () => {
+        const response = await fetch("/api/v1/health");
+        const health = await response.json();
+        const cogVideoOption = visualBackendSelect.querySelector('option[value="cogvideox"]');
+        if (!health.video_ai_enabled && cogVideoOption) {
+          cogVideoOption.disabled = true;
+          cogVideoOption.textContent = "CogVideoX indisponivel neste servidor";
+          if (visualBackendSelect.value === "cogvideox") {
+            visualBackendSelect.value = "template";
+          }
+        }
+      };
+
+      loadHealth();
       loadHistory();
       setInterval(loadHistory, 6000);
     </script>

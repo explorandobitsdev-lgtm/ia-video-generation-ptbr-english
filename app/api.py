@@ -15,6 +15,7 @@ def healthcheck(request: Request) -> dict[str, str | bool]:
         "status": "ok",
         "use_ollama": settings.use_ollama,
         "default_visual_backend": settings.default_visual_backend,
+        "video_ai_enabled": settings.video_ai_enabled,
     }
 
 

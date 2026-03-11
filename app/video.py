@@ -31,6 +31,11 @@ class VideoComposer:
 
     def render(self, plan: LessonPlan, request: RenderRequest, workdir: Path) -> RenderArtifacts:
         ffmpeg_command = self.settings.resolve_ffmpeg_command()
+        requested_backend = request.visual_backend or self.settings.default_visual_backend
+        visual_backend = requested_backend
+        if requested_backend == "cogvideox" and not self.settings.video_ai_enabled:
+            logger.info("CogVideoX solicitado, mas video_ai_enabled=False. Usando template local.")
+            visual_backend = "template"
 
         scene_clips: list[Path] = []
         preview_image: Path | None = None
@@ -48,7 +53,7 @@ class VideoComposer:
                 preview_image = image_path
 
             animation_path = None
-            if (request.visual_backend or self.settings.default_visual_backend) == "cogvideox":
+            if visual_backend == "cogvideox":
                 try:
                     animation_path = self.video_animator.animate_scene(
                         scene=scene,
@@ -58,6 +63,15 @@ class VideoComposer:
                 except Exception as exc:
                     logger.warning("CogVideoX falhou para %s. Usando frame estatico. Motivo: %s", scene.title, exc)
                     animation_path = None
+
+            if animation_path is None:
+                animation_path = self._render_local_scene_motion(
+                    scene=scene,
+                    scene_dir=scene_dir,
+                    scene_index=index,
+                    request=request,
+                    ffmpeg_command=ffmpeg_command,
+                )
 
             narration_result = self.narration.synthesize_scene(scene, scene_dir, request=request)
             duration = max(float(scene.duration_seconds), narration_result.duration)
@@ -80,6 +94,48 @@ class VideoComposer:
         if preview_image is None:
             raise RuntimeError("No preview image generated")
         return RenderArtifacts(video_path=final_video, preview_image_path=preview_image)
+
+    def _render_local_scene_motion(
+        self,
+        scene: LessonScene,
+        scene_dir: Path,
+        scene_index: int,
+        request: RenderRequest,
+        ffmpeg_command: str,
+    ) -> Path:
+        frames_dir = scene_dir / "template-motion"
+        frame_count = 12
+        self.visual_renderer.render_scene_animation(
+            scene=scene,
+            output_dir=frames_dir,
+            scene_index=scene_index,
+            request=request,
+            frame_count=frame_count,
+        )
+        motion_path = scene_dir / "template-motion.mp4"
+        command = [
+            ffmpeg_command,
+            "-y",
+            "-framerate",
+            "10",
+            "-i",
+            str(frames_dir / "frame-%03d.png"),
+            "-vf",
+            f"fps={self.settings.video_fps},format=yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "slow",
+            "-crf",
+            "16",
+            "-tune",
+            "animation",
+            "-movflags",
+            "+faststart",
+            str(motion_path),
+        ]
+        subprocess.run(command, check=True, capture_output=True)
+        return motion_path
 
     def _create_scene_clip(
         self,

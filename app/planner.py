@@ -79,6 +79,22 @@ TOPIC_PROFILES = (
         matches=("numero", "número", "numeros", "números", "number", "numbers", "contar"),
     ),
     TopicProfile(
+        key="pronouns",
+        title_pt="Pronomes em InglÃªs",
+        focus="pronomes pessoais simples",
+        vocabulary=["i", "you", "he", "she", "we", "they"],
+        translations={
+            "i": "eu",
+            "you": "você",
+            "he": "ele",
+            "she": "ela",
+            "we": "nós",
+            "they": "eles",
+        },
+        visual_theme="playful classroom with character labels, arrows and bright pronoun cards",
+        matches=("pronome", "pronomes", "pronoun", "pronouns"),
+    ),
+    TopicProfile(
         key="introductions",
         title_pt="Apresentações em Inglês",
         focus="apresentações, nomes e pequenos diálogos",
@@ -183,6 +199,10 @@ class LessonPlanner:
         self.settings = settings
 
     def generate(self, request: RenderRequest) -> LessonPlan:
+        local_profile, local_score = self._pick_topic_match(request.prompt)
+        if request.planner_mode == "auto" and local_profile is not None and local_score > 0:
+            return self._normalize_plan(self._generate_fallback(request, profile=local_profile), request)
+
         if self.settings.use_ollama and request.planner_mode != "local":
             try:
                 plan = self._generate_with_ollama(request)
@@ -190,7 +210,7 @@ class LessonPlanner:
             except Exception as exc:  # pragma: no cover
                 logger.warning("Falling back to local planner: %s", exc)
 
-        return self._normalize_plan(self._generate_fallback(request), request)
+        return self._normalize_plan(self._generate_fallback(request, profile=local_profile), request)
 
     def _generate_with_ollama(self, request: RenderRequest) -> LessonPlan:
         schema = LessonPlan.model_json_schema()
@@ -236,8 +256,8 @@ class LessonPlanner:
         plan_json = self._extract_json(content)
         return LessonPlan.model_validate_json(plan_json)
 
-    def _generate_fallback(self, request: RenderRequest) -> LessonPlan:
-        profile = self._pick_topic(request.prompt)
+    def _generate_fallback(self, request: RenderRequest, profile: TopicProfile | None = None) -> LessonPlan:
+        profile = profile or self._pick_topic(request.prompt)
         vocabulary = self._select_vocabulary(profile, request.prompt)
         primary_vocabulary = self._primary_vocabulary(profile, request.prompt, vocabulary)
         scene_count = max(4, min(len(SCENE_BLUEPRINTS), request.duration_minutes * 3))
@@ -984,17 +1004,29 @@ class LessonPlanner:
         return profile.translations.get(word.lower(), word)
 
     def _pick_topic(self, prompt: str) -> TopicProfile:
+        best_profile, _best_score = self._pick_topic_match(prompt)
+        if best_profile is not None:
+            return best_profile
+        return TOPIC_PROFILES[0]
+
+    def _pick_topic_match(self, prompt: str) -> tuple[TopicProfile | None, int]:
         lowered = self._normalize_lookup_text(prompt)
         best_profile: TopicProfile | None = None
         best_score = 0
         for profile in TOPIC_PROFILES:
-            score = sum(1 for token in profile.matches if self._normalize_lookup_text(token) in lowered)
+            score = sum(1 for token in profile.matches if self._prompt_matches_token(lowered, token))
             if score > best_score:
                 best_profile = profile
                 best_score = score
-        if best_profile is not None:
-            return best_profile
-        return TOPIC_PROFILES[3]
+        return best_profile, best_score
+
+    def _prompt_matches_token(self, prompt: str, token: str) -> bool:
+        normalized_token = self._normalize_lookup_text(token)
+        if not normalized_token:
+            return False
+        if " " in normalized_token:
+            return normalized_token in prompt
+        return re.search(rf"\b{re.escape(normalized_token)}\w*\b", prompt) is not None
 
     def _extract_requested_name(self, prompt: str) -> str | None:
         lowered = self._normalize_lookup_text(prompt)

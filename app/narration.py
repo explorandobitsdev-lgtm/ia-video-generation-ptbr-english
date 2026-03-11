@@ -204,13 +204,13 @@ class NarrationService:
         student_noise_bonus = 0.02 if speaker == "student" else 0.0
         if language == "pt-BR":
             return SynthesisConfig(
-                length_scale=self.settings.tts_pt_length_scale - (0.05 if animated else 0.0) + student_length_bonus,
+                length_scale=self.settings.tts_pt_length_scale - (0.03 if animated else 0.0) + student_length_bonus,
                 noise_scale=self.settings.tts_pt_noise_scale + (0.04 if animated else 0.0) + student_noise_bonus,
                 noise_w_scale=self.settings.tts_noise_w_scale,
                 volume=1.06 if speaker == "teacher" else 1.0,
             )
         return SynthesisConfig(
-            length_scale=self.settings.tts_en_length_scale - (0.04 if animated else 0.0) + student_length_bonus,
+            length_scale=self.settings.tts_en_length_scale - (0.03 if animated else 0.0) + student_length_bonus,
             noise_scale=self.settings.tts_en_noise_scale + (0.04 if animated else 0.0) + student_noise_bonus,
             noise_w_scale=self.settings.tts_noise_w_scale,
             volume=1.0 if speaker == "teacher" else 0.96,

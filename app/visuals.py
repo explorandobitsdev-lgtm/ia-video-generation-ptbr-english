@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import random
 from pathlib import Path
 
@@ -46,24 +47,79 @@ class TemplateVisualRenderer:
         output_path: Path,
         scene_index: int,
         request: RenderRequest | None = None,
+        *,
+        animation_frame: int = 0,
+        animation_cycle: int = 1,
+        include_companion: bool = True,
     ) -> Path:
+        image = self._build_scene_image(
+            scene=scene,
+            scene_index=scene_index,
+            request=request,
+            animation_frame=animation_frame,
+            animation_cycle=animation_cycle,
+            include_companion=include_companion,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(output_path)
+        return output_path
+
+    def render_scene_animation(
+        self,
+        scene: LessonScene,
+        output_dir: Path,
+        scene_index: int,
+        request: RenderRequest | None = None,
+        *,
+        frame_count: int = 12,
+    ) -> list[Path]:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        frame_paths: list[Path] = []
+        for frame_index in range(frame_count):
+            frame_path = output_dir / f"frame-{frame_index:03d}.png"
+            self.render_scene(
+                scene=scene,
+                output_path=frame_path,
+                scene_index=scene_index,
+                request=request,
+                animation_frame=frame_index,
+                animation_cycle=frame_count,
+                include_companion=True,
+            )
+            frame_paths.append(frame_path)
+        return frame_paths
+
+    def _build_scene_image(
+        self,
+        scene: LessonScene,
+        scene_index: int,
+        request: RenderRequest | None,
+        *,
+        animation_frame: int,
+        animation_cycle: int,
+        include_companion: bool,
+    ) -> Image.Image:
         width = self.settings.video_width
         height = self.settings.video_height
-        image = Image.new("RGB", (width, height), color=scene.background_palette[0])
+        base_color = self._hex_to_rgb(scene.background_palette[0]) + (255,)
+        image = Image.new("RGBA", (width, height), color=base_color)
         draw = ImageDraw.Draw(image)
 
         self._draw_gradient(draw, width, height, scene.background_palette)
         self._draw_confetti(draw, width, height, scene_index)
         self._draw_hills(draw, width, height, scene.background_palette)
-        self._draw_mascot(draw, width, height)
+        if include_companion:
+            self._draw_scene_companion(
+                image,
+                width,
+                height,
+                animation_frame=animation_frame,
+                animation_cycle=animation_cycle,
+            )
         self._draw_title(draw, scene, width, request)
         self._draw_cards(draw, scene, width, height)
         self._draw_narration_panel(draw, scene, width, height)
-        self._draw_footer(draw, width, height, scene_index, request)
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(output_path)
-        return output_path
+        return image.convert("RGB")
 
     def _draw_gradient(self, draw: ImageDraw.ImageDraw, width: int, height: int, colors: list[str]) -> None:
         for y in range(height):
@@ -97,42 +153,88 @@ class TemplateVisualRenderer:
         )
         draw.rectangle((0, int(height * 0.74), width, height), fill=colors[1])
 
-    def _draw_mascot(self, draw: ImageDraw.ImageDraw, width: int, height: int) -> None:
-        mascot_x = int(width * 0.12)
-        mascot_y = int(height * 0.46)
-        draw.rounded_rectangle(
-            (mascot_x, mascot_y, mascot_x + 160, mascot_y + 190),
-            radius=32,
-            fill="#FFF7ED",
-            outline="#FB923C",
-            width=5,
-        )
-        draw.ellipse((mascot_x + 35, mascot_y + 24, mascot_x + 125, mascot_y + 114), fill="#FDE68A")
-        draw.ellipse((mascot_x + 56, mascot_y + 55, mascot_x + 66, mascot_y + 65), fill="#111827")
-        draw.ellipse((mascot_x + 94, mascot_y + 55, mascot_x + 104, mascot_y + 65), fill="#111827")
-        draw.arc(
-            (mascot_x + 55, mascot_y + 64, mascot_x + 105, mascot_y + 94),
-            start=0,
-            end=180,
-            fill="#111827",
+    def _draw_scene_companion(
+        self,
+        image: Image.Image,
+        width: int,
+        height: int,
+        *,
+        animation_frame: int,
+        animation_cycle: int,
+    ) -> None:
+        notebook_shift = 0
+        sparkle_shift = 0
+        pencil_angle = 0
+        sticker_scale = 1.0
+
+        companion = Image.new("RGBA", (360, 360), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(companion)
+
+        draw.ellipse((40, 306, 248, 334), fill=(100, 116, 139, 92))
+        draw.rounded_rectangle((52, 122, 220, 312), radius=48, fill="#FFF7ED", outline="#FB923C", width=6)
+        draw.rounded_rectangle((40, 154, 72, 286), radius=18, fill="#DBEAFE", outline="#60A5FA", width=4)
+        draw.rounded_rectangle((200, 154, 232, 286), radius=18, fill="#DBEAFE", outline="#60A5FA", width=4)
+        draw.rounded_rectangle((74, 114, 198, 186), radius=28, fill="#FED7AA", outline="#FDBA74", width=4)
+        draw.rectangle((88, 174, 184, 182), fill="#F59E0B")
+        draw.ellipse((126, 168, 148, 190), fill="#FFF7ED", outline="#F59E0B", width=3)
+        draw.rounded_rectangle((92, 208, 180, 284), radius=28, fill="#FEF3C7", outline="#F59E0B", width=4)
+        draw.line((136, 208, 136, 284), fill="#FCD34D", width=4)
+        draw.line((92, 246, 180, 246), fill="#FCD34D", width=4)
+
+        notebook_top = 54 + notebook_shift
+        draw.rounded_rectangle((112, notebook_top, 198, 152 + notebook_shift), radius=16, fill="#DBEAFE", outline="#60A5FA", width=4)
+        draw.rectangle((122, notebook_top + 12, 134, notebook_top + 86), fill="#93C5FD")
+        for line_y in (notebook_top + 28, notebook_top + 46, notebook_top + 64):
+            draw.line((142, line_y, 184, line_y), fill="#60A5FA", width=3)
+
+        sticker_center_x = 136
+        sticker_center_y = 246
+        sticker_radius = int(round(24 * sticker_scale))
+        draw.ellipse(
+            (
+                sticker_center_x - sticker_radius,
+                sticker_center_y - sticker_radius,
+                sticker_center_x + sticker_radius,
+                sticker_center_y + sticker_radius,
+            ),
+            fill="#60A5FA",
+            outline="#2563EB",
             width=4,
         )
-        draw.polygon(
-            [
-                (mascot_x + 24, mascot_y + 45),
-                (mascot_x + 5, mascot_y + 15),
-                (mascot_x + 48, mascot_y + 28),
-            ],
-            fill="#FCA5A5",
-        )
-        draw.polygon(
-            [
-                (mascot_x + 136, mascot_y + 45),
-                (mascot_x + 155, mascot_y + 15),
-                (mascot_x + 112, mascot_y + 28),
-            ],
-            fill="#93C5FD",
-        )
+        label_font = self._load_font(18, bold=True)
+        draw.text((117, 234), "ABC", font=label_font, fill="#FFFFFF")
+
+        pencil_layer = self._build_companion_pencil_layer(pencil_angle)
+        companion.alpha_composite(pencil_layer, (188, 116))
+
+        for center_x, center_y, size, fill in (
+            (246, 88 + sparkle_shift, 14, "#FDE68A"),
+            (272, 128 - sparkle_shift, 12, "#93C5FD"),
+            (54, 108 + sparkle_shift, 10, "#F9A8D4"),
+        ):
+            draw.polygon(
+                [
+                    (center_x, center_y - size),
+                    (center_x + size // 2, center_y),
+                    (center_x, center_y + size),
+                    (center_x - size // 2, center_y),
+                ],
+                fill=fill,
+            )
+
+        companion_x = int(width * 0.075)
+        companion_y = int(height * 0.46)
+        image.alpha_composite(companion, (companion_x, companion_y))
+
+    def _build_companion_pencil_layer(self, angle_degrees: float) -> Image.Image:
+        pencil = Image.new("RGBA", (180, 180), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(pencil)
+        draw.rounded_rectangle((22, 72, 124, 98), radius=12, fill="#FCD34D", outline="#F59E0B", width=3)
+        draw.polygon([(124, 72), (154, 85), (124, 98)], fill="#FDE68A", outline="#D97706")
+        draw.polygon([(148, 82), (162, 85), (148, 88)], fill="#111827")
+        draw.rounded_rectangle((10, 72, 28, 98), radius=8, fill="#F9A8D4", outline="#EC4899", width=3)
+        draw.rectangle((28, 72, 36, 98), fill="#E5E7EB")
+        return pencil.rotate(angle_degrees, resample=Image.BICUBIC, center=(24, 86), expand=True)
 
     def _draw_title(
         self,
@@ -141,7 +243,6 @@ class TemplateVisualRenderer:
         width: int,
         request: RenderRequest | None,
     ) -> None:
-        title_font = self._load_font(58, bold=True)
         badge_font = self._load_font(28, bold=True)
         body_font = self._load_font(28, bold=False)
 
@@ -154,14 +255,33 @@ class TemplateVisualRenderer:
         badge_right = badge_left + 178
         badge_bottom = badge_top + 54
         title_x = badge_right + 34
+        lesson_theme = self._lesson_theme_text(request)
+        theme_left = panel_right - 24
+        title_right = panel_right - 28
 
         draw.rounded_rectangle((panel_left, panel_top, panel_right, panel_bottom), radius=36, fill="#FFFDF7", outline="#FFFFFF", width=3)
         draw.rounded_rectangle((badge_left, badge_top, badge_right, badge_bottom), radius=24, fill="#1D4ED8")
         draw.text((badge_left + 22, badge_top + 10), "Kid Class", font=badge_font, fill="#FFFFFF")
-        draw.text((title_x, 62), scene.title, font=title_font, fill="#111827")
+        if lesson_theme:
+            theme_font = self._fit_font_to_width(draw, lesson_theme, bold=True, sizes=[26, 24, 22, 20], max_width=280)
+            theme_text = self._truncate_text_to_width(draw, lesson_theme, theme_font, 280)
+            theme_width = self._text_width(draw, theme_text, theme_font) + 44
+            theme_left = panel_right - theme_width - 24
+            title_right = theme_left - 28
+            draw.rounded_rectangle(
+                (theme_left, panel_top + 22, theme_left + theme_width, panel_top + 74),
+                radius=24,
+                fill="#FB923C",
+            )
+            draw.text((theme_left + 22, panel_top + 34), theme_text, font=theme_font, fill="#FFFFFF")
+
+        title_max_width = max(320, title_right - title_x)
+        title_font = self._fit_font_to_width(draw, scene.title, bold=True, sizes=[58, 54, 50, 46, 42], max_width=title_max_width)
+        title_text = self._truncate_text_to_width(draw, scene.title, title_font, title_max_width)
+        draw.text((title_x, 62), title_text, font=title_font, fill="#111827")
 
         preview_words = "  |  ".join(scene.on_screen_text[:4]) if scene.on_screen_text else "English time"
-        preview_max_width = width - title_x - 84
+        preview_max_width = title_right - title_x
         preview_lines = self._wrap_text_to_width(draw, preview_words, body_font, preview_max_width)
         preview_y = 128
         for line_index, line in enumerate(preview_lines[:2]):
@@ -336,24 +456,6 @@ class TemplateVisualRenderer:
         for line_index, line in enumerate(wrapped[:3]):
             draw.text((panel_left + 28, start_y + (line_index * line_height)), line, font=panel_font, fill="#0F172A")
 
-    def _draw_footer(
-        self,
-        draw: ImageDraw.ImageDraw,
-        width: int,
-        height: int,
-        scene_index: int,
-        request: RenderRequest | None,
-    ) -> None:
-        footer_font = self._load_font(22, bold=False)
-        draw.rounded_rectangle((36, height - 54, width - 36, height - 20), radius=16, fill="#0F172A")
-        footer_text = f"Cena {scene_index:02d}  |  narracao automatica"
-        draw.text(
-            (56, height - 48),
-            footer_text,
-            font=footer_font,
-            fill="#FFFFFF",
-        )
-
     def _load_font(self, size: int, bold: bool) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         candidates = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -397,6 +499,11 @@ class TemplateVisualRenderer:
 
     def _number_badge_for_word(self, word: str) -> str | None:
         return NUMBER_BADGES.get(word.strip().lower())
+
+    def _lesson_theme_text(self, request: RenderRequest | None) -> str | None:
+        if request is None or not request.lesson_name:
+            return None
+        return " ".join(request.lesson_name.split())
 
     def _narration_panel_text(self, scene: LessonScene) -> str:
         teacher_segments = [
@@ -451,6 +558,47 @@ class TemplateVisualRenderer:
     ) -> int:
         _left, top, _right, bottom = draw.textbbox((0, 0), "Ag", font=font)
         return (bottom - top) + 2
+
+    def _fit_font_to_width(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        *,
+        bold: bool,
+        sizes: list[int],
+        max_width: int,
+    ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        for size in sizes:
+            font = self._load_font(size, bold=bold)
+            if self._text_width(draw, text, font) <= max_width:
+                return font
+        return self._load_font(sizes[-1], bold=bold)
+
+    def _truncate_text_to_width(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+        max_width: int,
+    ) -> str:
+        if self._text_width(draw, text, font) <= max_width:
+            return text
+
+        words = text.split()
+        if not words:
+            return text
+
+        truncated = words[0]
+        for word in words[1:]:
+            candidate = f"{truncated} {word}"
+            if self._text_width(draw, f"{candidate}...", font) <= max_width:
+                truncated = candidate
+            else:
+                break
+        if truncated == words[0] and self._text_width(draw, f"{truncated}...", font) > max_width:
+            while truncated and self._text_width(draw, f"{truncated}...", font) > max_width:
+                truncated = truncated[:-1]
+        return f"{truncated}..." if truncated != text else text
 
     def _hex_to_rgb(self, color: str) -> tuple[int, int, int]:
         color = color.lstrip("#")

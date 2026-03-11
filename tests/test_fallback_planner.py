@@ -1,8 +1,11 @@
 from pathlib import Path
 
+from PIL import Image, ImageChops
+
 from app.config import Settings
 from app.job_store import JobStore
 from app.narration import NarrationCue
+from app.narration import NarrationService
 from app.planner import LessonPlanner
 from app.script_writer import ScriptWriter
 from app.schemas import JobStatus, RenderRequest
@@ -94,6 +97,78 @@ def test_number_cards_show_numeric_badges(tmp_path: Path) -> None:
     assert [card.badge_text for card in cards] == ["1", "2", "3"]
 
 
+def test_render_scene_shows_lesson_theme_and_removes_footer_bar(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 1 minuto sobre contar em ingles para criancas.",
+        duration_minutes=1,
+        lesson_name="  Numbers  ",
+    )
+
+    plan = planner.generate(request)
+    output_path = tmp_path / "scene.png"
+    renderer.render_scene(plan.scenes[0], output_path, scene_index=1, request=request)
+
+    image = Image.open(output_path)
+    top_right_pixel = image.getpixel((settings.video_width - 90, 82))
+    bottom_pixel = image.getpixel((80, settings.video_height - 30))
+
+    assert top_right_pixel == (251, 146, 60)
+    assert bottom_pixel != (15, 23, 42)
+
+
+def test_scene_companion_frames_are_static(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 1 minuto sobre contar em ingles para criancas.",
+        duration_minutes=1,
+        lesson_name="Numbers",
+    )
+
+    plan = planner.generate(request)
+    frame_paths = renderer.render_scene_animation(
+        plan.scenes[0],
+        tmp_path / "teacher-motion",
+        scene_index=1,
+        request=request,
+        frame_count=6,
+    )
+
+    first_frame = Image.open(frame_paths[0])
+    fourth_frame = Image.open(frame_paths[3])
+    diff = ImageChops.difference(first_frame, fourth_frame)
+
+    assert len(frame_paths) == 6
+    assert diff.getbbox() is None
+
+
+def test_narration_defaults_are_slightly_slower(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    narration = NarrationService(settings)
+
+    teacher_pt = narration._build_synthesis_config("pt-BR", request=None, speaker="teacher")
+    teacher_en = narration._build_synthesis_config("en-US", request=None, speaker="teacher")
+    animated_en = narration._build_synthesis_config(
+        "en-US",
+        request=RenderRequest(
+            prompt="Crie um video de 1 minuto sobre contar em ingles para criancas.",
+            duration_minutes=1,
+            narration_style="animated",
+        ),
+        speaker="teacher",
+    )
+
+    assert teacher_pt.length_scale == 1.10
+    assert teacher_en.length_scale == 1.08
+    assert animated_en.length_scale == 1.05
+    assert settings.narration_gap_ms == 210
+    assert settings.sentence_gap_ms == 255
+
+
 def test_vocabulary_and_echo_scenes_repeat_words_after_prompt(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -127,6 +202,51 @@ def test_fallback_plan_uses_requested_greetings_from_prompt(tmp_path: Path) -> N
     assert "bom dia" in plan.scenes[0].narration[0].text.lower()
     assert "good morning" in plan.scenes[0].narration[1].text.lower()
     assert any(segment.speaker == "student" for segment in plan.scenes[2].narration)
+
+
+def test_fallback_plan_picks_pronouns_topic_from_prompt(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video de 1 minutos sobre pronomes em ingles para criancas de 5 a 8 anos, "
+            "com narracao em pt-BR mesclando palavras e frases curtas em ingles."
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+
+    assert plan.title.startswith("Pronomes em Ingl")
+    assert plan.vocabulary[:6] == ["i", "you", "he", "she", "we", "they"]
+    assert "pronomes pessoais simples" in plan.summary.lower()
+
+
+def test_auto_mode_uses_local_fast_path_for_supported_topics(tmp_path: Path, monkeypatch) -> None:
+    settings = Settings(
+        use_ollama=True,
+        ollama_base_url="http://invalid-host-for-test:11434",
+        data_dir=tmp_path / "data",
+        jobs_dir=tmp_path / "data" / "jobs",
+        outputs_dir=tmp_path / "data" / "outputs",
+        tmp_dir=tmp_path / "data" / "tmp",
+        piper_download_dir=tmp_path / "data" / "piper",
+    )
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 1 minutos sobre pronomes em ingles para criancas de 5 a 8 anos.",
+        duration_minutes=1,
+        planner_mode="auto",
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Ollama nao deveria ser chamado para tema local suportado")
+
+    monkeypatch.setattr("app.planner.httpx.post", fail_if_called)
+
+    plan = planner.generate(request)
+
+    assert plan.title.startswith("Pronomes em Ingl")
 
 
 def test_fallback_plan_picks_presentations_topic_from_prompt(tmp_path: Path) -> None:
