@@ -233,16 +233,22 @@ AGE_NUMBER_WORDS = {
 }
 
 ENGLISH_HINT_WORDS = {
-    "a",
     "am",
+    "add",
     "and",
+    "answer",
     "are",
+    "ask",
     "book",
+    "classroom",
+    "close",
     "class",
     "day",
     "days",
+    "down",
     "eraser",
     "fine",
+    "find",
     "friend",
     "good",
     "happy",
@@ -252,27 +258,97 @@ ENGLISH_HINT_WORDS = {
     "im",
     "is",
     "it",
+    "listen",
+    "look",
     "monday",
     "morning",
     "my",
     "name",
     "notebook",
     "old",
+    "open",
     "pencil",
+    "pick",
     "sad",
     "school",
     "seven",
+    "show",
     "six",
+    "sit",
+    "stand",
     "ten",
     "thank",
     "today",
     "tuesday",
+    "up",
     "very",
     "wednesday",
     "what",
     "years",
     "you",
     "your",
+}
+
+WEAK_ENGLISH_HINT_WORDS = {
+    "am",
+    "and",
+    "are",
+    "i",
+    "im",
+    "is",
+    "it",
+    "my",
+    "up",
+    "very",
+    "you",
+    "your",
+}
+
+STRUCTURED_ENGLISH_LIST_MARKERS = (
+    "verbos em ingles",
+    "palavras em ingles",
+    "frases em ingles",
+    "comandos em ingles",
+)
+
+STRUCTURED_ENGLISH_STOP_MARKERS = (
+    " o video deve ",
+    " o vídeo deve ",
+    " estrutura do video ",
+    " estrutura do vídeo ",
+    " narrador ",
+    " texto na tela ",
+    " mostrar ",
+    " mostre ",
+    " criancas repetem ",
+    " crianças repetem ",
+    " as criancas ",
+    " as crianças ",
+)
+
+ENGLISH_MULTIWORD_PHRASES = (
+    "pick up",
+    "sit down",
+    "stand up",
+    "good morning",
+    "good afternoon",
+    "good night",
+    "thank you",
+)
+
+COMMON_CUSTOM_TRANSLATIONS = {
+    "look": "olhar",
+    "find": "encontrar",
+    "listen": "escutar",
+    "show": "mostrar",
+    "add": "somar",
+    "open": "abrir",
+    "close": "fechar",
+    "pick up": "pegar",
+    "ask": "perguntar",
+    "answer": "responder",
+    "sit down": "sentar",
+    "stand up": "levantar",
 }
 
 PORTUGUESE_HINT_WORDS = {
@@ -328,7 +404,11 @@ ENGLISH_META_PHRASES = (
 
 PT_BR_ACCENT_REPLACEMENTS = (
     ("a pergunta principal e", "a pergunta principal é"),
+    ("acao", "ação"),
+    ("acoes", "ações"),
     ("agora e sua vez", "agora é sua vez"),
+    ("ja esta", "já está"),
+    ("ja", "já"),
     ("o objetivo principal e", "o objetivo principal é"),
     ("ate a proxima", "até a próxima"),
     ("em ingles", "em inglês"),
@@ -366,6 +446,7 @@ PT_BR_ACCENT_REPLACEMENTS = (
     ("situacoes", "situações"),
     ("tambem", "também"),
     ("ultima", "última"),
+    ("vocabulario", "vocabulário"),
     ("voce", "você"),
     ("voces", "vocês"),
 )
@@ -439,7 +520,7 @@ class LessonPlanner:
         primary_vocabulary = self._primary_vocabulary(profile, request.prompt, vocabulary)
         summary_focus = self._focus_summary_text(profile.focus)
         scene_count = max(4, min(len(SCENE_BLUEPRINTS), request.duration_minutes * 3))
-        groups = self._build_vocabulary_groups(vocabulary, primary_vocabulary, scene_count)
+        groups = self._build_vocabulary_groups(profile, vocabulary, primary_vocabulary, scene_count)
         scenes: list[LessonScene] = []
 
         for index, (scene_title, badge, decor) in enumerate(SCENE_BLUEPRINTS[:scene_count], start=1):
@@ -453,6 +534,7 @@ class LessonPlanner:
                 full_vocabulary=vocabulary,
                 narration=narration,
             )
+            card_details = self._card_details_for_scene(profile, display_words)
             scenes.append(
                 LessonScene(
                     scene_id=f"scene-{index:02d}",
@@ -466,6 +548,7 @@ class LessonPlanner:
                     narration=narration,
                     on_screen_text=[badge, *[self._display_phrase_case(word) for word in display_words]],
                     vocabulary=display_words,
+                    card_details=card_details,
                     background_palette=self._palette_for_scene(index),
                 )
             )
@@ -1050,17 +1133,21 @@ class LessonPlanner:
         prompt: str,
     ) -> list[NarrationSegment]:
         theme = self._clean_prompt_label(self._extract_lesson_theme(prompt) or profile.focus)
-        objective = self._clean_prompt_label(self._extract_lesson_objective(prompt) or f"aprender {theme} em ingles")
-        objective = objective.replace('"', "").replace("'", "")
-        joined_words = ", ".join(words)
-        echo_words = self._echo_words(words)
-        teacher_line, student_line = self._custom_dialogue_lines(words or profile.vocabulary)
+        selected_words = [word.strip() for word in (words or profile.vocabulary) if word.strip()]
+        if not selected_words:
+            selected_words = self._extract_prompt_english_phrases(prompt)[:6]
+        if not selected_words:
+            selected_words = ["repeat after me"]
+        objective = self._custom_objective_summary(prompt, theme, selected_words)
+        joined_words = ", ".join(selected_words)
+        echo_words = self._echo_words(selected_words) or "Repeat after me."
+        teacher_line, student_line = self._custom_dialogue_lines(selected_words)
 
         chunks = {
             1: [
                 NarrationSegment(
                     language="pt-BR",
-                    text=f"Ola, turma. Hoje nossa aula e sobre {theme}. O objetivo principal e {objective}.",
+                    text=f"Ola, turma. Hoje nossa aula é sobre {theme}. O objetivo principal é {objective}.",
                 ),
                 NarrationSegment(language="en-US", text=f"Let's learn: {joined_words}."),
                 NarrationSegment(
@@ -1464,9 +1551,16 @@ class LessonPlanner:
                 break
         return merged
 
-    def _build_vocabulary_groups(self, vocabulary: list[str], primary: list[str], scene_count: int) -> list[list[str]]:
+    def _build_vocabulary_groups(
+        self,
+        profile: TopicProfile,
+        vocabulary: list[str],
+        primary: list[str],
+        scene_count: int,
+    ) -> list[list[str]]:
         if len(vocabulary) > 6:
-            return self._build_balanced_vocabulary_groups(vocabulary, scene_count, max_group_size=3)
+            max_group_size = 4 if profile.key == "custom" else 3
+            return self._build_balanced_vocabulary_groups(vocabulary, scene_count, max_group_size=max_group_size)
 
         if not primary:
             primary = vocabulary[:3]
@@ -1516,6 +1610,16 @@ class LessonPlanner:
         if profile.key == "age" and teaching_mode != "dialogue":
             return self._age_display_words(current_words, full_vocabulary, narration)
         return current_words
+
+    def _card_details_for_scene(self, profile: TopicProfile, words: list[str]) -> list[str]:
+        details: list[str] = []
+        for word in words:
+            translation = self._translation(profile, word)
+            if not translation or translation.lower() == word.lower():
+                details.append("")
+                continue
+            details.append(translation[:1].upper() + translation[1:])
+        return details
 
     def _age_display_words(
         self,
@@ -1647,13 +1751,16 @@ class LessonPlanner:
         return ordered[:4]
 
     def _topic_detection_text(self, prompt: str) -> str:
-        parts = [
-            self._extract_lesson_theme(prompt),
-            self._extract_lesson_objective(prompt),
-            self._extract_about_topic(prompt),
-        ]
-        focused = " ".join(part for part in parts if part)
-        return focused or prompt
+        explicit_theme = self._extract_lesson_theme(prompt)
+        if explicit_theme:
+            return explicit_theme
+
+        about_topic = self._extract_about_topic(prompt)
+        if about_topic:
+            return about_topic
+
+        objective = self._extract_lesson_objective(prompt)
+        return objective or prompt
 
     def _build_custom_topic_profile(self, prompt: str) -> TopicProfile | None:
         theme = self._extract_lesson_theme(prompt) or self._extract_about_topic(prompt)
@@ -1675,8 +1782,8 @@ class LessonPlanner:
             key="custom",
             title_pt=self._format_custom_title(cleaned_theme),
             focus=cleaned_theme,
-            vocabulary=english_phrases[:6],
-            translations={},
+            vocabulary=english_phrases[:12],
+            translations=self._custom_translation_map(prompt, english_phrases[:12]),
             visual_theme=visual_theme,
             matches=(),
         )
@@ -1692,7 +1799,7 @@ class LessonPlanner:
         return self._extract_prompt_section(
             prompt,
             "objetivo da aula",
-            ("estilo visual", "estrutura do video", "estrutura do vídeo", "elementos visuais", "mensagem final"),
+            ("estilo visual", "estrutura do video", "estrutura do vídeo", "elementos visuais", "mensagem final", "o video deve", "o vídeo deve"),
         )
 
     def _extract_visual_style(self, prompt: str) -> str | None:
@@ -1713,18 +1820,26 @@ class LessonPlanner:
         return self._clean_prompt_label(match.group(1))
 
     def _extract_prompt_section(self, prompt: str, label: str, stop_labels: tuple[str, ...]) -> str | None:
-        stop_pattern = "|".join(re.escape(item) for item in stop_labels)
-        match = re.search(
-            rf"{re.escape(label)}\s*:?\s*(.+?)(?=\b(?:{stop_pattern})\b|$)",
-            prompt,
-            flags=re.IGNORECASE,
-        )
-        if match is None:
+        lowered = prompt.lower()
+        label_index = lowered.find(label.lower())
+        if label_index == -1:
             return None
-        return self._clean_prompt_label(match.group(1))
+        start = label_index + len(label)
+        while start < len(prompt) and prompt[start] in " :\n\r\t":
+            start += 1
+
+        end = len(prompt)
+        for stop_label in stop_labels:
+            stop_index = lowered.find(stop_label.lower(), start)
+            if stop_index != -1:
+                end = min(end, stop_index)
+        return self._clean_prompt_label(prompt[start:end])
 
     def _extract_prompt_english_phrases(self, prompt: str) -> list[str]:
         candidates: list[str] = []
+        for phrase in self._extract_structured_english_list(prompt):
+            self._append_unique_phrase(candidates, phrase)
+
         for match in re.finditer(r"\"([^\"]+)\"", prompt):
             self._append_english_phrase(candidates, match.group(1))
 
@@ -1738,11 +1853,100 @@ class LessonPlanner:
 
     def _append_english_phrase(self, phrases: list[str], candidate: str) -> None:
         cleaned = self._clean_prompt_label(candidate)
-        if not cleaned or not self._looks_like_english_phrase(cleaned):
+        if not cleaned:
             return
-        lowered = cleaned.lower()
+        if self._looks_like_english_phrase(cleaned):
+            self._append_unique_phrase(phrases, cleaned)
+            return
+        for phrase in self._extract_embedded_english_phrases(cleaned):
+            self._append_unique_phrase(phrases, phrase)
+
+    def _append_unique_phrase(self, phrases: list[str], candidate: str) -> None:
+        lowered = candidate.lower()
         if lowered not in {item.lower() for item in phrases}:
-            phrases.append(cleaned)
+            phrases.append(candidate)
+
+    def _extract_structured_english_list(self, prompt: str) -> list[str]:
+        normalized = self._normalize_lookup_text(prompt)
+        for marker in STRUCTURED_ENGLISH_LIST_MARKERS:
+            start = normalized.find(marker)
+            if start == -1:
+                continue
+            tail = normalized[start + len(marker) :].lstrip(" :")
+            if not tail:
+                continue
+
+            end = len(tail)
+            for stop_marker in STRUCTURED_ENGLISH_STOP_MARKERS:
+                marker_index = tail.find(stop_marker.strip())
+                if marker_index != -1:
+                    end = min(end, marker_index)
+            extracted = tail[:end].strip()
+            phrases = self._extract_embedded_english_phrases(extracted, allow_unknown_single_words=True)
+            if phrases:
+                return phrases
+        return []
+
+    def _extract_embedded_english_phrases(
+        self,
+        text: str,
+        *,
+        allow_unknown_single_words: bool = False,
+    ) -> list[str]:
+        normalized_tokens = self._normalize_lookup_text(text).split()
+        if not normalized_tokens:
+            return []
+
+        multiword_tokens = sorted(
+            (phrase.split() for phrase in ENGLISH_MULTIWORD_PHRASES),
+            key=len,
+            reverse=True,
+        )
+        phrases: list[str] = []
+        index = 0
+        while index < len(normalized_tokens):
+            matched_phrase = next(
+                (
+                    " ".join(tokens)
+                    for tokens in multiword_tokens
+                    if normalized_tokens[index : index + len(tokens)] == tokens
+                ),
+                None,
+            )
+            if matched_phrase is not None:
+                phrases.append(matched_phrase)
+                index += len(matched_phrase.split())
+                continue
+
+            token = normalized_tokens[index]
+            if token in PORTUGUESE_HINT_WORDS:
+                break
+            if token in ENGLISH_HINT_WORDS and token not in WEAK_ENGLISH_HINT_WORDS:
+                phrases.append(token)
+            elif allow_unknown_single_words and token.isalpha() and len(token) >= 2:
+                phrases.append(token)
+            index += 1
+
+        return phrases
+
+    def _custom_translation_map(self, prompt: str, phrases: list[str]) -> dict[str, str]:
+        translations: dict[str, str] = {}
+        for phrase in phrases:
+            match = re.search(
+                rf"\b{re.escape(phrase)}\b[!\"'”’\s:,-]*significa\s+([^\.\n\r\"”']+)",
+                prompt,
+                flags=re.IGNORECASE,
+            )
+            if match is not None:
+                cleaned = self._clean_prompt_label(match.group(1))
+                if cleaned:
+                    translations[phrase.lower()] = cleaned.lower()
+
+        for phrase in phrases:
+            lowered = phrase.lower()
+            if lowered not in translations and lowered in COMMON_CUSTOM_TRANSLATIONS:
+                translations[lowered] = COMMON_CUSTOM_TRANSLATIONS[lowered]
+        return translations
 
     def _looks_like_english_phrase(self, phrase: str) -> bool:
         normalized = self._normalize_lookup_text(phrase)
@@ -1751,10 +1955,13 @@ class LessonPlanner:
             return False
 
         english_hits = sum(1 for word in words if word in ENGLISH_HINT_WORDS)
+        strong_english_hits = sum(
+            1 for word in words if word in ENGLISH_HINT_WORDS and word not in WEAK_ENGLISH_HINT_WORDS
+        )
         portuguese_hits = sum(1 for word in words if word in PORTUGUESE_HINT_WORDS)
-        if english_hits == 0:
+        if english_hits == 0 or strong_english_hits == 0:
             return False
-        if portuguese_hits > english_hits:
+        if portuguese_hits > 0:
             return False
         return True
 
@@ -1763,11 +1970,21 @@ class LessonPlanner:
         if not cleaned:
             return ("Let's learn.", "Okay.")
 
+        if len(cleaned) >= 3 and all(self._looks_like_command_phrase(phrase) for phrase in cleaned[:4]):
+            midpoint = max(1, math.ceil(min(len(cleaned), 4) / 2))
+            teacher_group = cleaned[:midpoint]
+            student_group = cleaned[midpoint:4] or [cleaned[-1]]
+            teacher_line = " ".join(self._ensure_sentence(phrase) for phrase in teacher_group)
+            student_line = " ".join(self._ensure_sentence(phrase) for phrase in student_group)
+            return (teacher_line, student_line)
+
         first = self._ensure_sentence(cleaned[0])
         if len(cleaned) == 1:
             return (f"Listen: {first}", first)
 
         second = self._ensure_sentence(cleaned[1])
+        if self._looks_like_command_phrase(cleaned[0]) and self._looks_like_command_phrase(cleaned[1]):
+            return (first, second)
         if self._looks_like_question(first):
             return (first, second)
         if len(cleaned[0].split()) <= 3:
@@ -1787,6 +2004,27 @@ class LessonPlanner:
         if self._looks_like_question(cleaned):
             return f"{cleaned}?"
         return f"{cleaned}."
+
+    def _looks_like_command_phrase(self, text: str) -> bool:
+        normalized = self._normalize_lookup_text(text)
+        if not normalized:
+            return False
+        return normalized in COMMON_CUSTOM_TRANSLATIONS or normalized in ENGLISH_MULTIWORD_PHRASES
+
+    def _custom_objective_summary(self, prompt: str, theme: str, selected_words: list[str]) -> str:
+        raw_objective = self._clean_prompt_label(self._extract_lesson_objective(prompt) or f"aprender {theme} em ingles")
+        raw_objective = raw_objective.replace('"', "").replace("'", "")
+        normalized = self._normalize_lookup_text(raw_objective)
+        if (
+            len(raw_objective) > 120
+            or ":" in raw_objective
+            or any(marker in normalized for marker in STRUCTURED_ENGLISH_LIST_MARKERS)
+        ):
+            normalized_theme = self._normalize_lookup_text(theme)
+            if any(token in normalized_theme for token in ("comando", "acao", "acoes")):
+                return "aprender e praticar comandos e acoes em ingles"
+            return "aprender e praticar o vocabulario principal desta aula"
+        return raw_objective
 
     def _clean_prompt_label(self, text: str) -> str:
         cleaned = " ".join(text.strip().split())

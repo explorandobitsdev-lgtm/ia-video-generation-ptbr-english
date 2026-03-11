@@ -280,7 +280,7 @@
         <form id="render-form">
           <label>
             Pedido da aula
-            <textarea id="prompt" required>Crie um video de 5 minutos sobre cores em ingles para criancas de 5 a 8 anos, com narracao em pt-BR mesclando palavras e frases curtas em ingles, mini-jogos e revisao final.</textarea>
+            <textarea id="prompt" required maxlength="8000">Crie um video de 5 minutos sobre cores em ingles para criancas de 5 a 8 anos, com narracao em pt-BR mesclando palavras e frases curtas em ingles, mini-jogos e revisao final.</textarea>
           </label>
 
           <label>
@@ -360,6 +360,33 @@
         statusPill.textContent = label;
       };
 
+      const errorMessage = (payload, fallback) => {
+        if (!payload) {
+          return fallback;
+        }
+        if (typeof payload.detail === "string") {
+          return payload.detail;
+        }
+        if (Array.isArray(payload.detail) && payload.detail.length > 0) {
+          return payload.detail
+            .map((item) => {
+              const field = Array.isArray(item.loc) ? item.loc.join(".") : "payload";
+              return `${field}: ${item.msg}`;
+            })
+            .join("<br />");
+        }
+        return fallback;
+      };
+
+      const renderApiError = (payload, status) => {
+        jobId.textContent = "Nenhum job iniciado.";
+        downloadLink.hidden = true;
+        jobOutput.innerHTML = `
+          <strong>Erro HTTP ${status}</strong><br />
+          ${errorMessage(payload, "Nao foi possivel iniciar o render.")}
+        `;
+      };
+
       const renderJob = (job) => {
         jobId.textContent = `Job: ${job.job_id}`;
         const lessonNameRow = job.request.lesson_name
@@ -412,6 +439,11 @@
         });
 
         const job = await response.json();
+        if (!response.ok) {
+          renderApiError(job, response.status);
+          setStatus("erro");
+          return;
+        }
         renderJob(job);
         setStatus(job.status);
 

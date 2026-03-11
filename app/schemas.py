@@ -13,7 +13,7 @@ class JobStatus(str, Enum):
 
 
 class RenderRequest(BaseModel):
-    prompt: str = Field(min_length=12, max_length=2000)
+    prompt: str = Field(min_length=12, max_length=8000)
     duration_minutes: int = Field(default=5, ge=1, le=15)
     target_age: str = Field(default="5-8")
     lesson_name: str | None = Field(default=None, max_length=120)
@@ -55,6 +55,7 @@ class LessonScene(BaseModel):
     narration: list[NarrationSegment]
     on_screen_text: list[str] = Field(default_factory=list)
     vocabulary: list[str] = Field(default_factory=list)
+    card_details: list[str] = Field(default_factory=list)
     background_palette: list[str] = Field(default_factory=list)
 
 

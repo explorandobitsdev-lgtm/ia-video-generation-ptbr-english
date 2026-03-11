@@ -65,6 +65,18 @@ def test_render_request_normalizes_lesson_name() -> None:
     assert request.lesson_name == "Aula de cores"
 
 
+def test_render_request_accepts_detailed_prompt_over_previous_limit() -> None:
+    prompt = (
+        "Crie um video educacional infantil de ingles para iniciantes com comandos de sala de aula. "
+        + ("look, find, listen, show, add, open, close, pick up, ask, answer, sit down, stand up. " * 32)
+    )
+
+    request = RenderRequest(prompt=prompt, duration_minutes=3)
+
+    assert len(request.prompt) > 2000
+    assert len(request.prompt) < 8000
+
+
 def test_fallback_plan_covers_numbers_one_to_ten_in_short_video(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -376,6 +388,50 @@ def test_fallback_plan_builds_custom_topic_from_prompt_examples(tmp_path: Path) 
     assert "Let's learn: pencil, notebook, eraser." in english_lines
     assert "one" not in plan.vocabulary[:3]
     assert planner._apply_pt_br_accents("uma situacao simples") == "uma situação simples"
+
+
+def test_fallback_plan_builds_custom_topic_from_structured_verb_list(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um vídeo educacional infantil de inglês para iniciantes (crianças de 7 a 12 anos) com duração aproximada de 2 a 3 minutos. "
+            "Tema da aula: Comandos e ações em inglês usados na sala de aula. "
+            "Estilo visual: Desenho animado educativo, colorido, amigável, semelhante a livros didáticos infantis. "
+            "Objetivo da aula: Ensinar e praticar os seguintes verbos em inglês: look find listen show add open close pick up ask answer sit down stand up. "
+            "O vídeo deve ensinar pronúncia, significado e exemplos simples. "
+            "Estrutura do vídeo: 2. Apresentação dos comandos. "
+            "Narrador: \"Show significa mostrar.\" "
+            "Narrador: \"Add significa somar.\" "
+            "Texto na tela: Classroom Actions."
+        ),
+        duration_minutes=3,
+    )
+
+    plan = planner.generate(request)
+    english_lines = [segment.text.lower() for scene in plan.scenes for segment in scene.narration if segment.language == "en-US"]
+    opening_line = " ".join(segment.text for segment in plan.scenes[0].narration if segment.language == "pt-BR")
+    first_scene_cards = renderer.card_layout(plan.scenes[0], settings.video_width, settings.video_height)
+    third_scene_english = [segment.text.lower() for segment in plan.scenes[2].narration if segment.language == "en-US"]
+
+    assert plan.title.startswith("Comandos e Ações em Inglês")
+    assert plan.vocabulary[:6] == ["look", "find", "listen", "show", "add", "open"]
+    assert "pick up" in plan.vocabulary
+    assert "sit down" in plan.vocabulary
+    assert "stand up" in plan.vocabulary
+    assert "show significa mostrar" not in [item.lower() for item in plan.vocabulary]
+    assert "semelhante a livros didáticos infantis" not in [item.lower() for item in plan.vocabulary]
+    assert "Hoje nossa aula é sobre" in opening_line
+    assert "look find listen" not in opening_line.lower()
+    assert "comandos e ações em inglês" in opening_line.lower()
+    assert "vocabulário principal" not in opening_line.lower()
+    assert not opening_line.rstrip().endswith("como")
+    assert plan.scenes[0].vocabulary == ["look", "find", "listen", "show"]
+    assert plan.scenes[0].card_details == ["Olhar", "Encontrar", "Escutar", "Mostrar"]
+    assert [card.detail_text for card in first_scene_cards] == ["Olhar", "Encontrar", "Escutar", "Mostrar"]
+    assert any("ask" in line and "answer" in line for line in third_scene_english)
+    assert any("sit down" in line and "stand up" in line for line in english_lines)
 
 
 def test_local_planner_restores_pt_br_accents_in_generated_text(tmp_path: Path) -> None:

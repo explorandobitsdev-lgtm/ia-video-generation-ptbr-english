@@ -446,7 +446,8 @@ class TemplateVisualRenderer:
             )
             if card.detail_text:
                 detail_y = max(card.top + (110 if card.badge_text else 100), title_bottom + 8)
-                draw.text((card.left + 24, detail_y), card.detail_text, font=detail_font, fill="#64748B")
+                detail_text = self._truncate_text_to_width(draw, card.detail_text, detail_font, card.width - 48)
+                draw.text((card.left + 24, detail_y), detail_text, font=detail_font, fill="#64748B")
 
     def card_layout(self, scene: LessonScene, width: int, height: int) -> list[CardFrame]:
         cards = scene.vocabulary or scene.on_screen_text[:4]
@@ -460,7 +461,7 @@ class TemplateVisualRenderer:
             gap = 24
             top = 236
             colors = ["#FFFDF7", "#FEF3C7", "#DBEAFE"]
-            detail_text = None
+            default_detail_text = None
         else:
             visible_cards = cards[:4]
             card_width = 250
@@ -468,10 +469,11 @@ class TemplateVisualRenderer:
             gap = 20
             top = 244
             colors = ["#FFFFFF", "#FEF3C7", "#DBEAFE", "#FCE7F3"]
-            detail_text = "Listen • Repeat"
+            default_detail_text = "Listen • Repeat"
 
         total_width = (len(visible_cards) * card_width) + (max(len(visible_cards) - 1, 0) * gap)
         base_x = int((width - total_width) / 2)
+        card_details = scene.card_details[: len(visible_cards)] if scene.card_details else []
         return [
             CardFrame(
                 text=word,
@@ -480,7 +482,7 @@ class TemplateVisualRenderer:
                 width=card_width,
                 height=card_height,
                 fill=colors[index % len(colors)],
-                detail_text=detail_text,
+                detail_text=card_details[index] if index < len(card_details) and card_details[index] else default_detail_text,
                 badge_text=self._number_badge_for_word(word),
             )
             for index, word in enumerate(visible_cards)
