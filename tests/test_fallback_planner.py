@@ -34,6 +34,7 @@ def test_fallback_plan_hits_requested_duration(tmp_path: Path) -> None:
     )
 
     plan = planner.generate(request)
+    english_lines = [segment.text for scene in plan.scenes for segment in scene.narration if segment.language == "en-US"]
 
     assert len(plan.scenes) == 12
     assert sum(scene.duration_seconds for scene in plan.scenes) == 300
@@ -307,6 +308,145 @@ def test_fallback_plan_picks_presentations_topic_from_prompt(tmp_path: Path) -> 
     assert "apresentações" in plan.scenes[0].narration[0].text.lower()
     assert "my name is bruno" in plan.scenes[1].narration[1].text.lower()
     assert "what is your name" in plan.scenes[2].narration[1].text.lower()
+
+
+def test_fallback_plan_picks_age_topic_from_structured_prompt(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video educacional de 1 minuto para criancas de 7 a 12 anos aprendendo ingles basico. "
+            "Tema da aula: perguntar e responder a idade em ingles. "
+            "Estilo visual: desenho animado infantil, colorido e amigavel, semelhante a livros didaticos de ingles para criancas. "
+            "Objetivo da aula: ensinar a pergunta \"How old are you?\" e como responder \"I'm eight years old.\" "
+            "Elementos visuais: baloes de fala, numeros aparecendo animados, criancas sorrindo, escola ao fundo."
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    scene = plan.scenes[2]
+    practice_scene = plan.scenes[3]
+    opening_pt_lines = [segment.text.lower() for segment in plan.scenes[0].narration if segment.language == "pt-BR"]
+
+    assert plan.title.startswith("Idade em Inglês")
+    assert plan.vocabulary[:3] == ["how old are you", "i'm eight years old", "i'm six years old"]
+    assert any("quantos anos" in line for line in opening_pt_lines)
+    assert plan.scenes[1].vocabulary[:4] == [
+        "i'm eight years old",
+        "i'm six years old",
+        "i'm seven years old",
+        "i'm ten years old",
+    ]
+    assert practice_scene.vocabulary[:4] == [
+        "i'm eight years old",
+        "i'm six years old",
+        "i'm seven years old",
+        "i'm ten years old",
+    ]
+    assert practice_scene.on_screen_text[1:5] == [
+        "I'm Eight Years Old",
+        "I'm Six Years Old",
+        "I'm Seven Years Old",
+        "I'm Ten Years Old",
+    ]
+    assert any(segment.language == "en-US" and segment.speaker == "teacher" and segment.text == "How old are you?" for segment in scene.narration)
+    assert any(segment.language == "en-US" and segment.speaker == "student" and segment.text == "I'm eight years old." for segment in scene.narration)
+
+
+def test_fallback_plan_builds_custom_topic_from_prompt_examples(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video educacional de 1 minuto para criancas. "
+            "Tema da aula: material escolar em ingles. "
+            "Objetivo da aula: ensinar as palavras \"pencil\", \"notebook\" e \"eraser\". "
+            "Estilo visual: sala de aula alegre com mochilas e cadernos."
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    english_lines = [segment.text for scene in plan.scenes for segment in scene.narration if segment.language == "en-US"]
+
+    assert plan.title.startswith("Material Escolar em Inglês")
+    assert plan.vocabulary[:3] == ["pencil", "notebook", "eraser"]
+    assert "material escolar em inglês" in plan.summary.lower()
+    assert "Let's learn: pencil, notebook, eraser." in english_lines
+    assert "one" not in plan.vocabulary[:3]
+
+
+def test_local_planner_restores_pt_br_accents_in_generated_text(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video educacional de 1 minuto para criancas de 7 a 12 anos aprendendo ingles basico. "
+            "Tema da aula: perguntar e responder a idade em ingles. "
+            "Objetivo da aula: ensinar a pergunta \"How old are you?\" e como responder \"I'm eight years old.\""
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    opening_line = " ".join(segment.text for segment in plan.scenes[0].narration if segment.language == "pt-BR")
+    dialogue_explanation = plan.scenes[2].narration[-1].text
+
+    assert "Olá, turma." in opening_line
+    assert "idade em inglês" in opening_line
+    assert "você" in opening_line
+    assert "diálogo" in dialogue_explanation
+    assert "criança" in dialogue_explanation
+
+
+def test_local_planner_splits_english_phrases_out_of_pt_br_narration(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video educacional de 1 minuto para criancas de 7 a 12 anos aprendendo ingles basico. "
+            "Tema da aula: perguntar e responder a idade em ingles. "
+            "Objetivo da aula: ensinar a pergunta \"How old are you?\" e como responder \"I'm eight years old.\""
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    opening_segments = plan.scenes[0].narration
+
+    assert opening_segments[0].language == "pt-BR"
+    assert "how old are you" not in opening_segments[0].text.lower()
+    assert opening_segments[1].language == "en-US"
+    assert opening_segments[1].text == "How old are you."
+    assert opening_segments[2].language == "pt-BR"
+    assert "quantos anos" in opening_segments[2].text.lower()
+    return
+    assert "quantos anos você tem" in opening_segments[2].text.lower()
+
+
+def test_narration_panel_keeps_the_full_opening_explanation(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um video educacional de 1 minuto para criancas de 7 a 12 anos aprendendo ingles basico. "
+            "Tema da aula: perguntar e responder a idade em ingles. "
+            "Objetivo da aula: ensinar a pergunta \"How old are you?\" e como responder \"I'm eight years old.\""
+        ),
+        duration_minutes=1,
+    )
+
+    plan = planner.generate(request)
+    first_panel = renderer._narration_panel_text(plan.scenes[0])
+    second_panel = renderer._narration_panel_text(plan.scenes[1])
+
+    assert "How old are you." in first_panel
+    assert "Isso significa quantos anos você tem." in first_panel
+    assert "I am" in second_panel
+    assert "years old." in second_panel
+    assert second_panel.endswith("Agora veja alguns exemplos.")
 
 
 def test_greetings_dialogue_scene_explains_the_exchange_in_portuguese(tmp_path: Path) -> None:

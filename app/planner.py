@@ -80,7 +80,7 @@ TOPIC_PROFILES = (
     ),
     TopicProfile(
         key="pronouns",
-        title_pt="Pronomes em InglÃªs",
+        title_pt="Pronomes em Inglês",
         focus="pronomes pessoais simples",
         vocabulary=["i", "you", "he", "she", "we", "they"],
         translations={
@@ -128,6 +128,29 @@ TOPIC_PROFILES = (
             "prazer em conhecer",
             "nome",
         ),
+    ),
+    TopicProfile(
+        key="age",
+        title_pt="Idade em Ingles",
+        focus="perguntar e responder a idade",
+        vocabulary=[
+            "how old are you",
+            "i'm six years old",
+            "i'm seven years old",
+            "i'm eight years old",
+            "i'm ten years old",
+            "years old",
+        ],
+        translations={
+            "how old are you": "quantos anos voce tem",
+            "i'm six years old": "eu tenho seis anos",
+            "i'm seven years old": "eu tenho sete anos",
+            "i'm eight years old": "eu tenho oito anos",
+            "i'm ten years old": "eu tenho dez anos",
+            "years old": "anos de idade",
+        },
+        visual_theme="happy school yard with smiling children, age cards, speech bubbles and number balloons",
+        matches=("idade", "quantos anos", "age", "how old are you", "years old"),
     ),
     TopicProfile(
         key="greetings",
@@ -191,6 +214,157 @@ SCENE_BLUEPRINTS = (
     ("Quiz 2", "Hora da resposta", "treasure map with answer bubbles"),
     ("Revisão guiada", "Cantando as palavras", "musical notes, rainbow and applause"),
     ("Tchau, turma", "Até a próxima", "sunset classroom with waving characters"),
+)
+
+
+AGE_DEFAULT_EXAMPLES = ("six", "seven", "eight", "ten")
+
+AGE_NUMBER_WORDS = {
+    "6": "six",
+    "7": "seven",
+    "8": "eight",
+    "9": "nine",
+    "10": "ten",
+    "six": "six",
+    "seven": "seven",
+    "eight": "eight",
+    "nine": "nine",
+    "ten": "ten",
+}
+
+ENGLISH_HINT_WORDS = {
+    "a",
+    "am",
+    "and",
+    "are",
+    "book",
+    "class",
+    "day",
+    "days",
+    "eraser",
+    "fine",
+    "friend",
+    "good",
+    "happy",
+    "hello",
+    "how",
+    "i",
+    "im",
+    "is",
+    "it",
+    "monday",
+    "morning",
+    "my",
+    "name",
+    "notebook",
+    "old",
+    "pencil",
+    "sad",
+    "school",
+    "seven",
+    "six",
+    "ten",
+    "thank",
+    "today",
+    "tuesday",
+    "very",
+    "wednesday",
+    "what",
+    "years",
+    "you",
+    "your",
+}
+
+PORTUGUESE_HINT_WORDS = {
+    "aula",
+    "como",
+    "crianca",
+    "criancas",
+    "ensinar",
+    "estilo",
+    "falar",
+    "idade",
+    "ingles",
+    "narrador",
+    "objetivo",
+    "para",
+    "perguntar",
+    "portugues",
+    "pratica",
+    "responder",
+    "significa",
+    "tema",
+    "vamos",
+    "video",
+    "visual",
+    "voce",
+}
+
+ENGLISH_META_PHRASES = (
+    "How old are you",
+    "I'm",
+    "I am",
+    "I have",
+    "years old",
+    "My name is",
+    "What is your name",
+    "Nice to meet you",
+    "Good morning",
+    "Good afternoon",
+    "Good night",
+    "Hello",
+    "Goodbye",
+    "Please",
+    "Thank you",
+    "Let's learn",
+    "Repeat after me",
+    "Repeat with me",
+    "Say it now",
+    "Your turn",
+    "Very good",
+    "See you soon",
+    "See you next class",
+)
+
+PT_BR_ACCENT_REPLACEMENTS = (
+    ("a pergunta principal e", "a pergunta principal é"),
+    ("agora e sua vez", "agora é sua vez"),
+    ("o objetivo principal e", "o objetivo principal é"),
+    ("ate a proxima", "até a próxima"),
+    ("em ingles", "em inglês"),
+    ("de ingles", "de inglês"),
+    ("em portugues", "em português"),
+    ("ate", "até"),
+    ("alguem", "alguém"),
+    ("basico", "básico"),
+    ("crianca", "criança"),
+    ("criancas", "crianças"),
+    ("dialogo", "diálogo"),
+    ("expressoes", "expressões"),
+    ("facil", "fácil"),
+    ("historia", "história"),
+    ("ingles", "inglês"),
+    ("licao", "lição"),
+    ("memoria", "memória"),
+    ("nao", "não"),
+    ("numero", "número"),
+    ("numeros", "números"),
+    ("ola", "olá"),
+    ("otimo", "ótimo"),
+    ("portugues", "português"),
+    ("pratica", "prática"),
+    ("propria", "própria"),
+    ("proximo", "próximo"),
+    ("proxima", "próxima"),
+    ("rapido", "rápido"),
+    ("rapida", "rápida"),
+    ("repeticao", "repetição"),
+    ("revisao", "revisão"),
+    ("saudacoes", "saudações"),
+    ("tambem", "também"),
+    ("ultima", "última"),
+    ("voce", "você"),
+    ("voces", "vocês"),
 )
 
 
@@ -260,25 +434,35 @@ class LessonPlanner:
         profile = profile or self._pick_topic(request.prompt)
         vocabulary = self._select_vocabulary(profile, request.prompt)
         primary_vocabulary = self._primary_vocabulary(profile, request.prompt, vocabulary)
+        summary_focus = self._focus_summary_text(profile.focus)
         scene_count = max(4, min(len(SCENE_BLUEPRINTS), request.duration_minutes * 3))
         groups = self._build_vocabulary_groups(vocabulary, primary_vocabulary, scene_count)
         scenes: list[LessonScene] = []
 
         for index, (scene_title, badge, decor) in enumerate(SCENE_BLUEPRINTS[:scene_count], start=1):
             current_words = groups[(index - 1) % len(groups)]
+            teaching_mode = self._scene_teaching_mode(index)
+            narration = self._build_scene_narration(index, profile, current_words, request.prompt)
+            display_words = self._display_words_for_scene(
+                profile=profile,
+                teaching_mode=teaching_mode,
+                current_words=current_words,
+                full_vocabulary=vocabulary,
+                narration=narration,
+            )
             scenes.append(
                 LessonScene(
                     scene_id=f"scene-{index:02d}",
                     title=scene_title,
                     duration_seconds=20,
-                    teaching_mode=self._scene_teaching_mode(index),
+                    teaching_mode=teaching_mode,
                     visual_prompt=(
                         f"{profile.visual_theme}, {decor}, children's 2D illustration, soft shadows, "
                         f"big shapes, educational video frame about {profile.focus}, male english teacher guiding students"
                     ),
-                    narration=self._build_scene_narration(index, profile, current_words, request.prompt),
-                    on_screen_text=[badge, *[word.title() for word in current_words]],
-                    vocabulary=current_words,
+                    narration=narration,
+                    on_screen_text=[badge, *[self._display_phrase_case(word) for word in display_words]],
+                    vocabulary=display_words,
                     background_palette=self._palette_for_scene(index),
                 )
             )
@@ -287,7 +471,7 @@ class LessonPlanner:
             title=f"{profile.title_pt} para Crianças",
             summary=(
                 f"Aula guiada por um professor de inglês infantil com {request.duration_minutes} minutos "
-                f"para ensinar {profile.focus} em inglês com apoio em português brasileiro."
+                f"para ensinar {summary_focus} com apoio em português brasileiro."
             ),
             audience="children",
             target_age=request.target_age,
@@ -331,6 +515,10 @@ class LessonPlanner:
             return self._build_greetings_scene_narration(scene_index, profile, words)
         if profile.key == "introductions":
             return self._build_introductions_scene_narration(scene_index, profile, words, prompt)
+        if profile.key == "age":
+            return self._build_age_scene_narration(scene_index, profile, words, prompt)
+        if profile.key == "custom":
+            return self._build_custom_scene_narration(scene_index, profile, words, prompt)
 
         joined_words = ", ".join(words)
         echo_words = self._echo_words(words)
@@ -679,6 +867,331 @@ class LessonPlanner:
         }
         return chunks[scene_index]
 
+    def _build_age_scene_narration(
+        self,
+        scene_index: int,
+        profile: TopicProfile,
+        words: list[str],
+        prompt: str,
+    ) -> list[NarrationSegment]:
+        _ = words
+        examples = self._select_age_examples(prompt)
+        answer_age = "eight" if "eight" in examples else examples[0]
+        second_age = examples[1] if len(examples) > 1 else answer_age
+        third_age = examples[2] if len(examples) > 2 else second_age
+        last_age = examples[-1]
+        review_line = " ".join(f"I'm {age} years old." for age in examples[:4])
+        answer_translation = self._translation(profile, f"I'm {answer_age} years old")
+        third_translation = self._translation(profile, f"I'm {third_age} years old")
+
+        chunks = {
+            1: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Ola, turma. Hoje vamos aprender a perguntar e responder a idade em ingles. "
+                        "A pergunta principal e How old are you. Isso significa quantos anos voce tem."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text="How old are you?"),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Escute a pergunta em ingles e repita comigo bem devagar.",
+                ),
+            ],
+            2: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Para responder a idade em ingles, usamos I am mais o numero e depois years old. "
+                        "Agora veja alguns exemplos."
+                    ),
+                ),
+                NarrationSegment(
+                    language="en-US",
+                    text=f"I'm {examples[0]} years old. I'm {second_age} years old. I'm {third_age} years old.",
+                ),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Em ingles dizemos I am eight, e nao I have eight.",
+                ),
+            ],
+            3: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Agora vamos praticar um dialogo. Primeiro uma crianca pergunta a idade e depois a outra responde.",
+                ),
+                NarrationSegment(language="en-US", speaker="teacher", text="How old are you?"),
+                NarrationSegment(language="en-US", speaker="student", text=f"I'm {answer_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Muito bem. Nesse dialogo, a primeira crianca perguntou quantos anos voce tem. "
+                        f"Depois a segunda respondeu {answer_translation}."
+                    ),
+                ),
+            ],
+            4: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        "Vamos reforcar a estrutura. Para falar a idade, usamos I am mais o numero e depois years old. "
+                        "Agora e sua vez de repetir."
+                    ),
+                ),
+                NarrationSegment(language="en-US", text=review_line),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Quando eu perguntar How old are you, voce pode responder com a sua idade.",
+                ),
+            ],
+            5: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Hora do jogo. Eu vou perguntar a idade e voce pensa na resposta antes de ouvir o modelo.",
+                ),
+                NarrationSegment(language="en-US", text=f"How old are you? I'm {second_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Excelente. Quanto mais voce repete, mais natural essa resposta fica.",
+                ),
+            ],
+            6: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Mais um dialogo. Agora o professor pergunta e o aluno responde com outra idade.",
+                ),
+                NarrationSegment(language="en-US", speaker="teacher", text="How old are you?"),
+                NarrationSegment(language="en-US", speaker="student", text=f"I'm {third_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text=(
+                        f"Perfeito. Dessa vez o aluno respondeu {third_translation}."
+                    ),
+                ),
+            ],
+            7: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Na mini-historia, duas criancas contam a propria idade em ingles.",
+                ),
+                NarrationSegment(language="en-US", text=f"I'm {answer_age} years old. I'm {second_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Aponte para cada personagem quando ouvir a idade sendo falada.",
+                ),
+            ],
+            8: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Agora mexa o corpo comigo. Quando ouvir a frase em ingles, aponte para voce e repita.",
+                ),
+                NarrationSegment(language="en-US", text=f"Say it now: I'm {answer_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="No final, troque o numero e fale a sua idade de verdade.",
+                ),
+            ],
+            9: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Quiz rapido. Eu pergunto e voce responde antes do professor.",
+                ),
+                NarrationSegment(language="en-US", text=f"How old are you? I'm {last_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Boa resposta. Agora repita outra vez para deixar a frase mais forte na memoria.",
+                ),
+            ],
+            10: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Segunda rodada do quiz. Agora a resposta vem ainda mais rapida.",
+                ),
+                NarrationSegment(language="en-US", text=f"I'm {answer_age} years old. I'm {second_age} years old."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Voce ja entendeu como perguntar e responder a idade em ingles.",
+                ),
+            ],
+            11: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Vamos revisar a pergunta e as respostas principais da aula.",
+                ),
+                NarrationSegment(language="en-US", text=f"How old are you? {review_line}"),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Otimo trabalho. Agora a estrutura I am mais numero mais years old ja esta pronta para uso.",
+                ),
+            ],
+            12: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Nossa aula terminou. Sempre que alguem perguntar sua idade em ingles, voce ja sabe responder.",
+                ),
+                NarrationSegment(language="en-US", text="How old are you? Very good! See you next class!"),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Ate a proxima aula de ingles.",
+                ),
+            ],
+        }
+        return chunks[scene_index]
+
+    def _build_custom_scene_narration(
+        self,
+        scene_index: int,
+        profile: TopicProfile,
+        words: list[str],
+        prompt: str,
+    ) -> list[NarrationSegment]:
+        theme = self._clean_prompt_label(self._extract_lesson_theme(prompt) or profile.focus)
+        objective = self._clean_prompt_label(self._extract_lesson_objective(prompt) or f"aprender {theme} em ingles")
+        objective = objective.replace('"', "").replace("'", "")
+        joined_words = ", ".join(words)
+        echo_words = self._echo_words(words)
+        teacher_line, student_line = self._custom_dialogue_lines(words or profile.vocabulary)
+
+        chunks = {
+            1: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Ola, turma. Hoje nossa aula e sobre {theme}. O objetivo principal e {objective}.",
+                ),
+                NarrationSegment(language="en-US", text=f"Let's learn: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Escute as palavras na tela e repita comigo bem devagar.",
+                ),
+            ],
+            2: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Agora eu vou modelar as frases principais de {theme} em ingles para voce repetir.",
+                ),
+                NarrationSegment(language="en-US", text=f"Repeat after me: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Agora vamos repetir mais uma vez.",
+                ),
+                NarrationSegment(language="en-US", text=echo_words),
+            ],
+            3: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Vamos praticar um dialogo curto sobre {theme}.",
+                ),
+                NarrationSegment(language="en-US", speaker="teacher", text=teacher_line),
+                NarrationSegment(language="en-US", speaker="student", text=student_line),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Primeiro o professor falou e depois o aluno respondeu.",
+                ),
+            ],
+            4: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Agora vamos reforcar as palavras e frases mais importantes de {theme}.",
+                ),
+                NarrationSegment(language="en-US", text=f"New words: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Escute com calma e repita do seu jeito.",
+                ),
+            ],
+            5: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Hora do jogo. Pense na resposta correta para {theme} antes de ouvir o modelo.",
+                ),
+                NarrationSegment(language="en-US", text=f"Which one is it? {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Boa. Isso ajuda a ligar som, escrita e significado.",
+                ),
+            ],
+            6: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Mais um dialogo para praticar {theme} em contexto.",
+                ),
+                NarrationSegment(language="en-US", speaker="teacher", text=teacher_line),
+                NarrationSegment(language="en-US", speaker="student", text=student_line),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Excelente. Voce ja esta reconhecendo a estrutura principal da aula.",
+                ),
+            ],
+            7: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Na historinha, essas palavras aparecem em uma situacao simples de {theme}.",
+                ),
+                NarrationSegment(language="en-US", text=f"Look. {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Aponte para a tela quando ouvir a palavra correta.",
+                ),
+            ],
+            8: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Agora mexa o corpo comigo enquanto repete as frases de {theme}.",
+                ),
+                NarrationSegment(language="en-US", text=f"Move and say: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Movimento e repeticao ajudam a guardar melhor o ingles.",
+                ),
+            ],
+            9: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Quiz rapido sobre {theme}. Responda comigo.",
+                ),
+                NarrationSegment(language="en-US", text=f"Say it now: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Boa resposta. Vamos para mais uma rodada.",
+                ),
+            ],
+            10: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Segunda rodada de pratica para fixar {theme}.",
+                ),
+                NarrationSegment(language="en-US", text=f"Your turn: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Seu ouvido ja esta mais atento para essas palavras.",
+                ),
+            ],
+            11: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Vamos revisar tudo o que aprendemos sobre {theme}.",
+                ),
+                NarrationSegment(language="en-US", text=f"Repeat with me: {joined_words}."),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Excelente revisao. Agora ficou bem mais facil reconhecer o tema em ingles.",
+                ),
+            ],
+            12: [
+                NarrationSegment(
+                    language="pt-BR",
+                    text=f"Nossa aula sobre {theme} terminou. Guarde essas frases para usar na proxima atividade.",
+                ),
+                NarrationSegment(language="en-US", text=f"Very good! {joined_words}. See you soon!"),
+                NarrationSegment(
+                    language="pt-BR",
+                    text="Muito bem. Ate a proxima aula de ingles.",
+                ),
+            ],
+        }
+        return chunks[scene_index]
+
     def _build_greetings_scene_narration(
         self,
         scene_index: int,
@@ -870,6 +1383,12 @@ class LessonPlanner:
             requested = self._extract_requested_introductions(prompt)
             if requested:
                 return self._pad_vocabulary(requested, profile.vocabulary)
+        if profile.key == "age":
+            requested = self._extract_requested_age_vocabulary(prompt)
+            if requested:
+                return self._pad_vocabulary(requested, profile.vocabulary)
+        if profile.key == "custom":
+            return profile.vocabulary
         return profile.vocabulary
 
     def _primary_vocabulary(self, profile: TopicProfile, prompt: str, selected: list[str]) -> list[str]:
@@ -881,6 +1400,12 @@ class LessonPlanner:
             requested = self._extract_requested_introductions(prompt)
             if requested:
                 return requested
+        if profile.key == "age":
+            requested = self._extract_requested_age_vocabulary(prompt)
+            if requested:
+                return requested[:3]
+        if profile.key == "custom":
+            return selected[:3]
         return selected[:3]
 
     def _extract_requested_greetings(self, prompt: str) -> list[str]:
@@ -977,6 +1502,91 @@ class LessonPlanner:
 
         return groups or [vocabulary[:max_group_size]]
 
+    def _display_words_for_scene(
+        self,
+        profile: TopicProfile,
+        teaching_mode: str,
+        current_words: list[str],
+        full_vocabulary: list[str],
+        narration: list[NarrationSegment],
+    ) -> list[str]:
+        if profile.key == "age" and teaching_mode != "dialogue":
+            return self._age_display_words(current_words, full_vocabulary, narration)
+        return current_words
+
+    def _age_display_words(
+        self,
+        current_words: list[str],
+        full_vocabulary: list[str],
+        narration: list[NarrationSegment],
+    ) -> list[str]:
+        spoken: list[str] = []
+        question = next((word for word in full_vocabulary if self._normalize_lookup_text(word) == "how old are you"), None)
+        answers = [
+            word
+            for word in full_vocabulary
+            if self._normalize_lookup_text(word).startswith("i m ") and self._normalize_lookup_text(word).endswith("years old")
+        ]
+
+        for segment in narration:
+            if segment.language != "en-US":
+                continue
+            for piece in re.split(r"(?<=[.!?])\s+", segment.text):
+                normalized = self._extract_age_phrase(piece)
+                if normalized and normalized not in spoken:
+                    spoken.append(normalized)
+
+        display: list[str] = []
+        spoken_answers = [item for item in spoken if item.startswith("i'm ")]
+        if spoken_answers:
+            display.extend(spoken_answers)
+            for answer in answers:
+                if answer not in display:
+                    display.append(answer)
+                if len(display) >= 4:
+                    break
+            if question and len(display) < 4 and question not in display:
+                display.append(question)
+        else:
+            if question:
+                display.append(question)
+            for answer in answers:
+                if answer not in display:
+                    display.append(answer)
+                if len(display) >= 4:
+                    break
+
+        for word in current_words:
+            if word not in display:
+                display.append(word)
+            if len(display) >= 4:
+                break
+        return display[:4] or current_words
+
+    def _extract_age_phrase(self, text: str) -> str | None:
+        normalized = self._normalize_lookup_text(text)
+        if not normalized:
+            return None
+        if normalized.startswith("how old are you"):
+            return "how old are you"
+        match = re.search(r"\bi\s*m\s+([a-z0-9]+)\s+years\s+old\b", normalized)
+        if match is None:
+            return None
+        age = AGE_NUMBER_WORDS.get(match.group(1))
+        if age is None:
+            return None
+        return f"i'm {age} years old"
+
+    def _display_phrase_case(self, text: str) -> str:
+        words = []
+        for word in text.split():
+            if "'" in word:
+                head, tail = word.split("'", 1)
+                words.append(f"{head[:1].upper() + head[1:].lower()}'{tail.lower()}")
+            else:
+                words.append(word[:1].upper() + word[1:].lower())
+        return " ".join(words)
+
     def _meaning_intro(self, meanings: list[str]) -> str:
         if not meanings:
             return "vamos aprender juntos."
@@ -997,20 +1607,213 @@ class LessonPlanner:
 
     def _translation(self, profile: TopicProfile, word: str) -> str:
         lowered = word.lower()
+        direct_translation = profile.translations.get(lowered)
+        if direct_translation is not None:
+            return direct_translation
+        if lowered.startswith("i'm "):
+            if lowered.endswith(" years old"):
+                return f"eu tenho {word[4:]}"
+            return f"eu sou {word[4:]}"
         if lowered.startswith("i am "):
             return f"eu sou {word[5:]}"
         if lowered.startswith("my name is "):
             return f"meu nome é {word[11:]}"
-        return profile.translations.get(word.lower(), word)
+        return word
+
+    def _extract_requested_age_vocabulary(self, prompt: str) -> list[str]:
+        examples = self._select_age_examples(prompt)
+        return ["how old are you", *[f"i'm {age} years old" for age in examples[:4]], "years old"]
+
+    def _select_age_examples(self, prompt: str) -> list[str]:
+        lowered = self._normalize_lookup_text(prompt)
+        detected: list[str] = []
+        for match in re.finditer(r"i\s+m\s+([a-z0-9]+)\s+years\s+old", lowered):
+            age = AGE_NUMBER_WORDS.get(match.group(1))
+            if age is not None and age not in detected:
+                detected.append(age)
+
+        ordered = [age for age in AGE_DEFAULT_EXAMPLES if age in detected]
+        for age in detected:
+            if age not in ordered:
+                ordered.append(age)
+        if not ordered:
+            ordered = list(AGE_DEFAULT_EXAMPLES)
+        for age in AGE_DEFAULT_EXAMPLES:
+            if age not in ordered:
+                ordered.append(age)
+        return ordered[:4]
+
+    def _topic_detection_text(self, prompt: str) -> str:
+        parts = [
+            self._extract_lesson_theme(prompt),
+            self._extract_lesson_objective(prompt),
+            self._extract_about_topic(prompt),
+        ]
+        focused = " ".join(part for part in parts if part)
+        return focused or prompt
+
+    def _build_custom_topic_profile(self, prompt: str) -> TopicProfile | None:
+        theme = self._extract_lesson_theme(prompt) or self._extract_about_topic(prompt)
+        if theme is None:
+            return None
+
+        cleaned_theme = self._clean_prompt_label(theme)
+        english_phrases = self._extract_prompt_english_phrases(prompt)
+        if not english_phrases:
+            return None
+
+        visual_style = self._extract_visual_style(prompt)
+        visual_theme = (
+            f"{visual_style}, cheerful school scene for children about {cleaned_theme}"
+            if visual_style
+            else f"playful classroom for children learning {cleaned_theme}, smiling students and speech bubbles"
+        )
+        return TopicProfile(
+            key="custom",
+            title_pt=self._format_custom_title(cleaned_theme),
+            focus=cleaned_theme,
+            vocabulary=english_phrases[:6],
+            translations={},
+            visual_theme=visual_theme,
+            matches=(),
+        )
+
+    def _extract_lesson_theme(self, prompt: str) -> str | None:
+        return self._extract_prompt_section(
+            prompt,
+            "tema da aula",
+            ("estilo visual", "objetivo da aula", "estrutura do video", "estrutura do vídeo", "elementos visuais", "mensagem final"),
+        )
+
+    def _extract_lesson_objective(self, prompt: str) -> str | None:
+        return self._extract_prompt_section(
+            prompt,
+            "objetivo da aula",
+            ("estilo visual", "estrutura do video", "estrutura do vídeo", "elementos visuais", "mensagem final"),
+        )
+
+    def _extract_visual_style(self, prompt: str) -> str | None:
+        return self._extract_prompt_section(
+            prompt,
+            "estilo visual",
+            ("objetivo da aula", "estrutura do video", "estrutura do vídeo", "elementos visuais", "mensagem final"),
+        )
+
+    def _extract_about_topic(self, prompt: str) -> str | None:
+        match = re.search(
+            r"\bsobre\s+(.+?)(?=\b(?:para criancas|para crianças|com narracao|com narração|tema da aula|estilo visual|objetivo da aula|estrutura do video|estrutura do vídeo|elementos visuais|mensagem final)\b|$)",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+        return self._clean_prompt_label(match.group(1))
+
+    def _extract_prompt_section(self, prompt: str, label: str, stop_labels: tuple[str, ...]) -> str | None:
+        stop_pattern = "|".join(re.escape(item) for item in stop_labels)
+        match = re.search(
+            rf"{re.escape(label)}\s*:?\s*(.+?)(?=\b(?:{stop_pattern})\b|$)",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+        return self._clean_prompt_label(match.group(1))
+
+    def _extract_prompt_english_phrases(self, prompt: str) -> list[str]:
+        candidates: list[str] = []
+        for match in re.finditer(r"\"([^\"]+)\"", prompt):
+            self._append_english_phrase(candidates, match.group(1))
+
+        normalized = prompt.replace(" and ", ", ").replace(" e ", ", ")
+        for chunk in re.split(r"[.;:\n]", normalized):
+            for part in chunk.split(","):
+                if "\"" in part:
+                    continue
+                self._append_english_phrase(candidates, part)
+        return candidates
+
+    def _append_english_phrase(self, phrases: list[str], candidate: str) -> None:
+        cleaned = self._clean_prompt_label(candidate)
+        if not cleaned or not self._looks_like_english_phrase(cleaned):
+            return
+        lowered = cleaned.lower()
+        if lowered not in {item.lower() for item in phrases}:
+            phrases.append(cleaned)
+
+    def _looks_like_english_phrase(self, phrase: str) -> bool:
+        normalized = self._normalize_lookup_text(phrase)
+        words = normalized.split()
+        if not words or len(words) > 8:
+            return False
+
+        english_hits = sum(1 for word in words if word in ENGLISH_HINT_WORDS)
+        portuguese_hits = sum(1 for word in words if word in PORTUGUESE_HINT_WORDS)
+        if english_hits == 0:
+            return False
+        if portuguese_hits > english_hits:
+            return False
+        return True
+
+    def _custom_dialogue_lines(self, phrases: list[str]) -> tuple[str, str]:
+        cleaned = [self._clean_prompt_label(phrase) for phrase in phrases if self._clean_prompt_label(phrase)]
+        if not cleaned:
+            return ("Let's learn.", "Okay.")
+
+        first = self._ensure_sentence(cleaned[0])
+        if len(cleaned) == 1:
+            return (f"Listen: {first}", first)
+
+        second = self._ensure_sentence(cleaned[1])
+        if self._looks_like_question(first):
+            return (first, second)
+        if len(cleaned[0].split()) <= 3:
+            return (f"Look. {self._ensure_sentence(cleaned[0])}", second)
+        return (first, second)
+
+    def _looks_like_question(self, text: str) -> bool:
+        normalized = self._normalize_lookup_text(text)
+        return text.strip().endswith("?") or normalized.startswith(("how ", "what ", "where ", "when ", "who ", "why ", "can ", "do ", "is ", "are "))
+
+    def _ensure_sentence(self, text: str) -> str:
+        cleaned = self._clean_prompt_label(text)
+        if not cleaned:
+            return ""
+        if cleaned[-1] in ".!?":
+            return cleaned
+        if self._looks_like_question(cleaned):
+            return f"{cleaned}?"
+        return f"{cleaned}."
+
+    def _clean_prompt_label(self, text: str) -> str:
+        cleaned = " ".join(text.strip().split())
+        return cleaned.strip(" -,:;.\"'")
+
+    def _format_custom_title(self, theme: str) -> str:
+        words = self._clean_prompt_label(theme).split()
+        if not words:
+            return "Tema Personalizado em Ingles"
+        small_words = {"de", "da", "do", "das", "dos", "e", "em"}
+        formatted = [word if index > 0 and word.lower() in small_words else word.capitalize() for index, word in enumerate(words)]
+        return " ".join(formatted)
+
+    def _focus_summary_text(self, focus: str) -> str:
+        normalized = self._normalize_lookup_text(focus)
+        if "ingles" in normalized or "english" in normalized:
+            return focus
+        return f"{focus} em inglês"
 
     def _pick_topic(self, prompt: str) -> TopicProfile:
         best_profile, _best_score = self._pick_topic_match(prompt)
         if best_profile is not None:
             return best_profile
+        custom_profile = self._build_custom_topic_profile(prompt)
+        if custom_profile is not None:
+            return custom_profile
         return TOPIC_PROFILES[0]
 
     def _pick_topic_match(self, prompt: str) -> tuple[TopicProfile | None, int]:
-        lowered = self._normalize_lookup_text(prompt)
+        lowered = self._normalize_lookup_text(self._topic_detection_text(prompt))
         best_profile: TopicProfile | None = None
         best_score = 0
         for profile in TOPIC_PROFILES:
@@ -1039,6 +1842,118 @@ class LessonPlanner:
         lowered = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
         lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
         return " ".join(lowered.split())
+
+    def _apply_pt_br_accents(self, text: str) -> str:
+        updated = text
+        for source, target in PT_BR_ACCENT_REPLACEMENTS:
+            pattern = re.compile(rf"\b{re.escape(source)}\b", flags=re.IGNORECASE)
+            updated = pattern.sub(lambda match: self._match_case(target, match.group(0)), updated)
+        return updated
+
+    def _match_case(self, replacement: str, original: str) -> str:
+        original_words = original.split()
+        replacement_words = replacement.split()
+        if len(original_words) == len(replacement_words) and len(original_words) > 1:
+            adjusted_words: list[str] = []
+            for original_word, replacement_word in zip(original_words, replacement_words):
+                if original_word.isupper():
+                    adjusted_words.append(replacement_word.upper())
+                elif original_word[:1].isupper():
+                    adjusted_words.append(replacement_word[:1].upper() + replacement_word[1:])
+                else:
+                    adjusted_words.append(replacement_word)
+            return " ".join(adjusted_words)
+        if original.isupper():
+            return replacement.upper()
+        if original[:1].isupper():
+            return replacement[:1].upper() + replacement[1:]
+        return replacement
+
+    def _normalize_pt_br_scene(self, scene: LessonScene) -> LessonScene:
+        normalized_narration = [
+            segment.model_copy(update={"text": self._apply_pt_br_accents(segment.text)})
+            if segment.language == "pt-BR"
+            else segment
+            for segment in scene.narration
+        ]
+        return scene.model_copy(update={"narration": normalized_narration, "title": self._apply_pt_br_accents(scene.title.strip())})
+
+    def _split_mixed_language_scene(self, scene: LessonScene, plan_vocabulary: list[str]) -> LessonScene:
+        candidates = self._english_split_candidates(scene, plan_vocabulary)
+        if not candidates:
+            return scene
+
+        normalized_narration: list[NarrationSegment] = []
+        for segment in scene.narration:
+            if segment.language != "pt-BR":
+                normalized_narration.append(segment)
+                continue
+            normalized_narration.extend(self._split_pt_br_segment(segment, candidates))
+        return scene.model_copy(update={"narration": normalized_narration})
+
+    def _english_split_candidates(self, scene: LessonScene, plan_vocabulary: list[str]) -> list[str]:
+        candidates: list[str] = []
+        for phrase in ENGLISH_META_PHRASES:
+            self._add_candidate_phrase(candidates, phrase)
+        for phrase in [*plan_vocabulary, *scene.vocabulary]:
+            self._add_candidate_phrase(candidates, phrase)
+        for segment in scene.narration:
+            if segment.language != "en-US":
+                continue
+            for piece in re.split(r"(?<=[.!?])\s+", segment.text):
+                self._add_candidate_phrase(candidates, piece)
+        return sorted(candidates, key=lambda item: (-len(item), item.lower()))
+
+    def _add_candidate_phrase(self, candidates: list[str], phrase: str) -> None:
+        cleaned = self._clean_prompt_label(phrase)
+        if len(cleaned) < 2:
+            return
+        lowered = cleaned.lower()
+        if lowered not in {item.lower() for item in candidates}:
+            candidates.append(cleaned)
+
+    def _split_pt_br_segment(self, segment: NarrationSegment, candidates: list[str]) -> list[NarrationSegment]:
+        pattern = re.compile("|".join(re.escape(candidate) for candidate in candidates), flags=re.IGNORECASE)
+        pieces: list[NarrationSegment] = []
+        cursor = 0
+
+        for match in pattern.finditer(segment.text):
+            start = match.start()
+            end = self._consume_english_trailing_punctuation(segment.text, match.end())
+            before = self._clean_pt_br_fragment(segment.text[cursor:start])
+            english = self._clean_english_fragment(segment.text[start:end])
+            if before:
+                pieces.append(segment.model_copy(update={"text": before}))
+            if english:
+                pieces.append(
+                    NarrationSegment(
+                        language="en-US",
+                        speaker=segment.speaker,
+                        text=english,
+                    )
+                )
+            cursor = end
+
+        after = self._clean_pt_br_fragment(segment.text[cursor:])
+        if after:
+            pieces.append(segment.model_copy(update={"text": after}))
+        return pieces or [segment]
+
+    def _consume_english_trailing_punctuation(self, text: str, end: int) -> int:
+        cursor = end
+        while cursor < len(text) and text[cursor] in ".!?\"'":
+            cursor += 1
+        return cursor
+
+    def _clean_pt_br_fragment(self, text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", text).strip()
+        cleaned = cleaned.lstrip(",;: ")
+        return cleaned
+
+    def _clean_english_fragment(self, text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", text).strip()
+        cleaned = cleaned.strip(",;: ")
+        return cleaned
 
     def _normalize_plan(self, plan: LessonPlan, request: RenderRequest) -> LessonPlan:
         target_seconds = request.duration_minutes * 60
@@ -1073,22 +1988,26 @@ class LessonPlanner:
 
         normalized_scenes = []
         for index, scene in enumerate(plan.scenes, start=1):
-            normalized_scenes.append(
-                scene.model_copy(
-                    update={
-                        "scene_id": scene.scene_id or f"scene-{index:02d}",
-                        "duration_seconds": durations[index - 1],
-                        "background_palette": scene.background_palette or self._palette_for_scene(index),
-                        "title": scene.title.strip() or f"Cena {index}",
-                        "visual_prompt": scene.visual_prompt.strip() or "children classroom illustration",
-                    }
-                )
+            normalized_source_scene = self._split_mixed_language_scene(self._normalize_pt_br_scene(scene), plan.vocabulary)
+            normalized_scene = normalized_source_scene.model_copy(
+                update={
+                    "scene_id": scene.scene_id or f"scene-{index:02d}",
+                    "duration_seconds": durations[index - 1],
+                    "background_palette": scene.background_palette or self._palette_for_scene(index),
+                    "title": self._apply_pt_br_accents(normalized_source_scene.title.strip()) or f"Cena {index}",
+                    "visual_prompt": normalized_source_scene.visual_prompt.strip() or "children classroom illustration",
+                }
             )
+            normalized_scenes.append(normalized_scene)
 
         return plan.model_copy(
             update={
                 "duration_minutes": request.duration_minutes,
                 "target_age": request.target_age,
+                "title": self._apply_pt_br_accents(plan.title),
+                "summary": self._apply_pt_br_accents(plan.summary),
+                "style": self._apply_pt_br_accents(plan.style),
+                "learning_objectives": [self._apply_pt_br_accents(item) for item in plan.learning_objectives],
                 "scenes": normalized_scenes,
             }
         )

@@ -438,7 +438,7 @@ class TemplateVisualRenderer:
                 self._draw_card_badge(draw, card)
             title_bottom = self._draw_card_title(
                 draw,
-                card.text.title(),
+                self._display_card_text(card.text),
                 x=card.left,
                 y=card.top,
                 card_width=card.width,
@@ -874,8 +874,18 @@ class TemplateVisualRenderer:
         fallback_lines = self._wrap_text_to_width(draw, text, fallback_font, max_width)[:2]
         line_height = self._line_height(draw, fallback_font)
         for line_index, line in enumerate(fallback_lines):
-            draw.text((x + 22, y + 26 + top_padding + (line_index * line_height)), line, font=fallback_font, fill="#0F172A")
+                    draw.text((x + 22, y + 26 + top_padding + (line_index * line_height)), line, font=fallback_font, fill="#0F172A")
         return y + 26 + top_padding + (len(fallback_lines) * line_height)
+
+    def _display_card_text(self, text: str) -> str:
+        words: list[str] = []
+        for word in text.split():
+            if "'" in word:
+                head, tail = word.split("'", 1)
+                words.append(f"{head[:1].upper() + head[1:].lower()}'{tail.lower()}")
+            else:
+                words.append(word[:1].upper() + word[1:].lower())
+        return " ".join(words)
 
     def _number_badge_for_word(self, word: str) -> str | None:
         return NUMBER_BADGES.get(word.strip().lower())
@@ -894,10 +904,33 @@ class TemplateVisualRenderer:
         if teacher_segments:
             if scene.teaching_mode == "dialogue":
                 return teacher_segments[-1]
-            return teacher_segments[0]
+            return self._leading_narration_block(scene.narration)
         if scene.narration:
-            return " ".join(scene.narration[0].text.split())
+            return self._leading_narration_block(scene.narration)
         return ""
+
+    def _leading_narration_block(self, narration: list[NarrationSegment]) -> str:
+        pieces: list[str] = []
+        total_chars = 0
+        saw_english = False
+
+        for segment in narration:
+            cleaned = " ".join(segment.text.split())
+            if not cleaned:
+                continue
+
+            pieces.append(cleaned)
+            total_chars += len(cleaned) + (1 if pieces[:-1] else 0)
+            saw_english = saw_english or segment.language == "en-US"
+            is_sentence_end = cleaned.endswith((".", "!", "?"))
+
+            # Keep the opening teaching block together, including short English inserts.
+            if total_chars >= 80 and is_sentence_end and (segment.language == "pt-BR" or not saw_english):
+                break
+            if total_chars >= 160:
+                break
+
+        return " ".join(pieces)
 
     def _wrap_text_to_width(
         self,
