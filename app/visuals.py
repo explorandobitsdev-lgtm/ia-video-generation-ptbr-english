@@ -212,14 +212,12 @@ class TemplateVisualRenderer:
         draw.ellipse((28, 198, 312, 330), fill=(250, 204, 21, 42))
         draw.ellipse((168, 24, 290, 126), fill=(103, 232, 249, 34))
         draw.ellipse((16, 52, 112, 128), fill=(244, 114, 182, 28))
-        draw.ellipse((220, 92, 312, 176), fill=(251, 191, 36, 24))
-        draw.arc((196, 58, 304, 166), start=230, end=28, fill="#F59E0B", width=6)
         draw.arc((34, 110, 132, 208), start=318, end=90, fill="#60A5FA", width=6)
         for x, y, radius, fill in (
-            (246, 82, 10, "#F9A8D4"),
-            (282, 118, 8, "#FACC15"),
+            (114, 78, 10, "#F9A8D4"),
+            (88, 202, 8, "#FACC15"),
             (62, 156, 6, "#10B981"),
-            (258, 206, 6, "#2563EB"),
+            (148, 214, 6, "#2563EB"),
         ):
             draw.ellipse((x, y, x + radius, y + radius), fill=fill)
         self._draw_bits_space_bot(
