@@ -6,6 +6,7 @@ from app.config import Settings
 from app.job_store import JobStore
 from app.narration import NarrationCue
 from app.narration import NarrationService
+from app.narration import NarrationSubtitle
 from app.planner import LessonPlanner
 from app.script_writer import ScriptWriter
 from app.schemas import JobStatus, RenderRequest
@@ -134,10 +135,10 @@ def test_dialogue_scene_renders_two_characters_with_exchange_bubbles(tmp_path: P
 
     image = Image.open(output_path)
 
-    assert image.getpixel((372, 770)) == (29, 78, 216)
-    assert image.getpixel((1496, 760)) == (249, 115, 22)
+    assert image.getpixel((326, 748)) == (254, 243, 199)
+    assert image.getpixel((1594, 748)) == (139, 92, 246)
     assert image.getpixel((520, 520)) == (255, 253, 247)
-    assert image.getpixel((1180, 570)) == (254, 243, 199)
+    assert image.getpixel((1260, 552)) == (254, 243, 199)
 
 
 def test_scene_companion_frames_are_static(tmp_path: Path) -> None:
@@ -328,6 +329,7 @@ def test_video_highlight_uses_rendered_card_geometry(tmp_path: Path) -> None:
         duration=float(scene.duration_seconds),
         animated_clip=False,
         cues=[NarrationCue(label=scene.vocabulary[0], start=1.0, end=2.0)],
+        subtitles=[],
         subtitle_path=None,
     )
 
@@ -335,6 +337,49 @@ def test_video_highlight_uses_rendered_card_geometry(tmp_path: Path) -> None:
     assert f"y={card.top - 8}" in filter_chain
     assert f"w={card.width + 16}" in filter_chain
     assert f"h={card.height + 16}" in filter_chain
+
+
+def test_dialogue_video_highlight_tracks_speaking_character_regions(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    composer = VideoComposer(settings)
+    request = RenderRequest(
+        prompt="Crie um video de 2 minutos sobre saudacoes em ingles bom dia, boa tarde e boa noite para criancas.",
+        duration_minutes=2,
+    )
+
+    plan = planner.generate(request)
+    scene = plan.scenes[2]
+    bubble_frames = composer.visual_renderer.dialogue_bubble_layout(scene, settings.video_width, settings.video_height)
+
+    filter_chain = composer._build_scene_filter(
+        scene=scene,
+        duration=float(scene.duration_seconds),
+        animated_clip=False,
+        cues=[],
+        subtitles=[
+            NarrationSubtitle(speaker="teacher", language="en-US", text="Good morning, Ana.", start=1.0, end=2.1),
+            NarrationSubtitle(speaker="student", language="en-US", text="I'm fine, thank you.", start=2.3, end=3.0),
+            NarrationSubtitle(speaker="teacher", language="pt-BR", text="Muito bem.", start=3.2, end=4.0),
+        ],
+        subtitle_path=None,
+    )
+
+    teacher = bubble_frames["teacher"]
+    student = bubble_frames["student"]
+
+    assert f"x={teacher.left - 4}" in filter_chain
+    assert f"y={teacher.top - 4}" in filter_chain
+    assert f"w={(teacher.right - teacher.left) + 8}" in filter_chain
+    assert f"h={(teacher.bottom - teacher.top) + 8}" in filter_chain
+    assert "between(t,1.00,2.10)" in filter_chain
+    assert f"x={student.left - 4}" in filter_chain
+    assert f"y={student.top - 4}" in filter_chain
+    assert f"w={(student.right - student.left) + 8}" in filter_chain
+    assert f"h={(student.bottom - student.top) + 8}" in filter_chain
+    assert "between(t,2.30,3.00)" in filter_chain
+    assert "between(t,3.20,4.00)" not in filter_chain
+    assert "color=blue@0.10" not in filter_chain
 
 
 def test_job_store_round_trip(tmp_path: Path) -> None:

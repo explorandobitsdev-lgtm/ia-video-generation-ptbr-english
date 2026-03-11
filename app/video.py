@@ -154,6 +154,7 @@ class VideoComposer:
             duration=duration,
             animated_clip=animation_path is not None,
             cues=cues,
+            subtitles=subtitles,
             subtitle_path=None,
         )
         audio_filter_chain = self._build_audio_filter()
@@ -238,6 +239,7 @@ class VideoComposer:
         duration: float,
         animated_clip: bool,
         cues: list[NarrationCue],
+        subtitles: list[NarrationSubtitle],
         subtitle_path: Path | None,
     ) -> str:
         if animated_clip:
@@ -253,27 +255,49 @@ class VideoComposer:
                 "setsar=1",
             ]
 
-        card_frames = self.visual_renderer.card_layout(scene, self.settings.video_width, self.settings.video_height)
-        for start, end, card_index in self._card_highlight_schedule(scene, duration, cues):
-            if card_index >= len(card_frames):
-                continue
-            card = card_frames[card_index]
-            x = card.left - 8
-            y = card.top - 8
-            width = card.width + 16
-            height = card.height + 16
-            filters.append(
-                "drawbox="
-                f"x={x}:y={y}:w={width}:h={height}:"
-                "color=yellow@0.12:t=fill:"
-                f"enable='between(t,{start:.2f},{end:.2f})'"
+        if scene.teaching_mode == "dialogue":
+            bubble_frames = self.visual_renderer.dialogue_bubble_layout(
+                scene,
+                self.settings.video_width,
+                self.settings.video_height,
             )
-            filters.append(
-                "drawbox="
-                f"x={x}:y={y}:w={width}:h={height}:"
-                "color=orange@0.95:t=5:"
-                f"enable='between(t,{start:.2f},{end:.2f})'"
-            )
+            for start, end, speaker in self._dialogue_highlight_schedule(duration, subtitles):
+                bubble_frame = bubble_frames.get(speaker)
+                if bubble_frame is None:
+                    continue
+                x = bubble_frame.left - 4
+                y = bubble_frame.top - 4
+                width = (bubble_frame.right - bubble_frame.left) + 8
+                height = (bubble_frame.bottom - bubble_frame.top) + 8
+                stroke_color = "blue@0.95" if speaker == "teacher" else "orange@0.95"
+                filters.append(
+                    "drawbox="
+                    f"x={x}:y={y}:w={width}:h={height}:"
+                    f"color={stroke_color}:t=3:"
+                    f"enable='between(t,{start:.2f},{end:.2f})'"
+                )
+        else:
+            card_frames = self.visual_renderer.card_layout(scene, self.settings.video_width, self.settings.video_height)
+            for start, end, card_index in self._card_highlight_schedule(scene, duration, cues):
+                if card_index >= len(card_frames):
+                    continue
+                card = card_frames[card_index]
+                x = card.left - 8
+                y = card.top - 8
+                width = card.width + 16
+                height = card.height + 16
+                filters.append(
+                    "drawbox="
+                    f"x={x}:y={y}:w={width}:h={height}:"
+                    "color=yellow@0.12:t=fill:"
+                    f"enable='between(t,{start:.2f},{end:.2f})'"
+                )
+                filters.append(
+                    "drawbox="
+                    f"x={x}:y={y}:w={width}:h={height}:"
+                    "color=orange@0.95:t=5:"
+                    f"enable='between(t,{start:.2f},{end:.2f})'"
+                )
 
         return ",".join(filters)
 
@@ -317,6 +341,23 @@ class VideoComposer:
             start = min(duration - 0.25, 0.45 + (index * slot))
             end = min(duration, start + highlight_length)
             schedule.append((start, end, index))
+
+        return schedule
+
+    def _dialogue_highlight_schedule(
+        self,
+        duration: float,
+        subtitles: list[NarrationSubtitle],
+    ) -> list[tuple[float, float, str]]:
+        schedule: list[tuple[float, float, str]] = []
+        for subtitle in subtitles:
+            if subtitle.speaker not in {"teacher", "student"}:
+                continue
+            if subtitle.language != "en-US":
+                continue
+            start = min(duration - 0.15, max(0.0, subtitle.start))
+            end = min(duration, max(start + 0.55, subtitle.end))
+            schedule.append((start, end, subtitle.speaker))
 
         return schedule
 
