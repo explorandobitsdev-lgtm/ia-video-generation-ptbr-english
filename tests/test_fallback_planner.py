@@ -375,6 +375,7 @@ def test_fallback_plan_builds_custom_topic_from_prompt_examples(tmp_path: Path) 
     assert "material escolar em inglês" in plan.summary.lower()
     assert "Let's learn: pencil, notebook, eraser." in english_lines
     assert "one" not in plan.vocabulary[:3]
+    assert planner._apply_pt_br_accents("uma situacao simples") == "uma situação simples"
 
 
 def test_local_planner_restores_pt_br_accents_in_generated_text(tmp_path: Path) -> None:
@@ -392,12 +393,14 @@ def test_local_planner_restores_pt_br_accents_in_generated_text(tmp_path: Path) 
     plan = planner.generate(request)
     opening_line = " ".join(segment.text for segment in plan.scenes[0].narration if segment.language == "pt-BR")
     dialogue_explanation = plan.scenes[2].narration[-1].text
+    reinforcement_line = plan.scenes[3].narration[0].text
 
     assert "Olá, turma." in opening_line
     assert "idade em inglês" in opening_line
     assert "você" in opening_line
     assert "diálogo" in dialogue_explanation
     assert "criança" in dialogue_explanation
+    assert "reforçar" in reinforcement_line
 
 
 def test_local_planner_splits_english_phrases_out_of_pt_br_narration(tmp_path: Path) -> None:
