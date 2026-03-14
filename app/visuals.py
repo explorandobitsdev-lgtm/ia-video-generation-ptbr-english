@@ -505,7 +505,7 @@ class TemplateVisualRenderer:
                 width=card_width,
                 height=card_height,
                 fill=colors[index % len(colors)],
-                detail_text=card_details[index] if index < len(card_details) and card_details[index] else default_detail_text,
+                detail_text=card_details[index] if index < len(card_details) else default_detail_text,
                 badge_text=self._number_badge_for_word(word),
             )
             for index, word in enumerate(visible_cards)
@@ -523,17 +523,17 @@ class TemplateVisualRenderer:
             panel_right=1636,
             panel_bottom=770,
             phrase_left=360,
-            phrase_top=356,
+            phrase_top=388,
             phrase_right=1348,
-            phrase_bottom=560,
+            phrase_bottom=592,
             timer_left=1404,
-            timer_top=318,
+            timer_top=330,
             timer_right=1588,
-            timer_bottom=502,
+            timer_bottom=514,
             answer_left=360,
-            answer_top=618,
+            answer_top=636,
             answer_right=1560,
-            answer_bottom=706,
+            answer_bottom=724,
         )
 
     def _draw_final_quiz_scene(self, draw: ImageDraw.ImageDraw, scene: LessonScene, width: int, height: int) -> None:
@@ -542,10 +542,10 @@ class TemplateVisualRenderer:
             return
 
         title_font = self._load_font(30, bold=True)
-        helper_font = self._load_font(26, bold=False)
+        helper_font = self._load_font(24, bold=False)
         phrase_font = self._load_font(44, bold=True)
         timer_font = self._load_font(22, bold=True)
-        answer_font = self._load_font(24, bold=False)
+        answer_font = self._load_font(26, bold=False)
         quiz_phrase = self._display_card_text(scene.vocabulary[0]) if scene.vocabulary else "Listen carefully"
 
         self._draw_elevated_panel(
@@ -562,12 +562,20 @@ class TemplateVisualRenderer:
             width=3,
         )
         draw.text((quiz_frame.panel_left + 62, quiz_frame.panel_top + 38), "Desafio Final", font=title_font, fill="#FFFFFF")
-        draw.text(
-            (quiz_frame.panel_left + 42, quiz_frame.panel_top + 112),
-            "Ouça a frase em inglês, pense no significado e responda antes do contador terminar.",
-            font=helper_font,
-            fill="#334155",
+        helper_text = (
+            "Ouça a frase em inglês, pense no significado e responda "
+            "antes do contador terminar."
         )
+        helper_max_width = quiz_frame.timer_left - quiz_frame.panel_left - 110
+        helper_lines = self._wrap_text_to_width(draw, helper_text, helper_font, helper_max_width)[:2]
+        helper_line_height = self._line_height(draw, helper_font) + 4
+        for line_index, line in enumerate(helper_lines):
+            draw.text(
+                (quiz_frame.panel_left + 42, quiz_frame.panel_top + 108 + (line_index * helper_line_height)),
+                line,
+                font=helper_font,
+                fill="#334155",
+            )
 
         self._draw_elevated_panel(
             draw,
@@ -589,12 +597,11 @@ class TemplateVisualRenderer:
 
         draw.ellipse(
             (quiz_frame.timer_left, quiz_frame.timer_top, quiz_frame.timer_right, quiz_frame.timer_bottom),
-            fill=(29, 78, 216, 34),
+            fill=(255, 255, 255, 244),
             outline="#2563EB",
             width=6,
         )
-        draw.text((quiz_frame.timer_left + 44, quiz_frame.timer_top + 26), "Tempo", font=timer_font, fill="#1D4ED8")
-        draw.text((quiz_frame.timer_left + 42, quiz_frame.timer_top + 118), "?", font=self._load_font(76, bold=True), fill="#1D4ED8")
+        draw.text((quiz_frame.timer_left + 46, quiz_frame.timer_top + 28), "Tempo", font=timer_font, fill="#1D4ED8")
 
         self._draw_elevated_panel(
             draw,
@@ -602,8 +609,12 @@ class TemplateVisualRenderer:
             radius=28,
             fill=(255, 255, 255, 214),
         )
-        draw.text((quiz_frame.answer_left + 34, quiz_frame.answer_top + 18), "Resposta aparece depois do contador", font=answer_font, fill="#64748B")
-        draw.text((quiz_frame.answer_left + 34, quiz_frame.answer_top + 52), "Pense primeiro e confira no final.", font=answer_font, fill="#0F172A")
+        draw.rounded_rectangle(
+            (quiz_frame.answer_left + 28, quiz_frame.answer_top + 18, quiz_frame.answer_right - 28, quiz_frame.answer_top + 58),
+            radius=18,
+            fill="#E2E8F0",
+        )
+        draw.text((quiz_frame.answer_left + 48, quiz_frame.answer_top + 26), "Resposta revelada depois do contador", font=answer_font, fill="#475569")
 
     def _draw_card_badge(self, draw: ImageDraw.ImageDraw, card: CardFrame) -> None:
         if not card.badge_text:

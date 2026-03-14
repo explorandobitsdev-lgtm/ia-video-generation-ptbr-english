@@ -262,6 +262,7 @@ ENGLISH_HINT_WORDS = {
     "is",
     "it",
     "listen",
+    "lets",
     "look",
     "monday",
     "morning",
@@ -348,6 +349,7 @@ ENGLISH_MULTIWORD_PHRASES = (
 )
 
 COMMON_CUSTOM_TRANSLATIONS = {
+    "let's": "vamos",
     "look": "olhar",
     "find": "encontrar",
     "listen": "escutar",
@@ -2190,6 +2192,13 @@ class LessonPlanner:
         normalized_translation = profile.translations.get(normalized_word)
         if normalized_translation is not None:
             return normalized_translation
+        if lowered in {"let's", "lets"}:
+            return "vamos"
+        if lowered.startswith("let's ") or lowered.startswith("lets "):
+            activity = word.split(" ", 1)[1]
+            activity_translation = self._translation(profile, activity).strip()
+            if activity_translation and self._normalize_lookup_text(activity_translation) != self._normalize_lookup_text(activity):
+                return f"vamos {activity_translation}"
         if lowered.startswith("what's her name") or lowered.startswith("what is her name"):
             return "qual é o nome dela"
         if lowered.startswith("what's his name") or lowered.startswith("what is his name"):
@@ -2351,7 +2360,10 @@ class LessonPlanner:
     def _extract_prompt_english_phrases(self, prompt: str) -> list[str]:
         objective_text = self._extract_lesson_objective(prompt)
         if objective_text:
-            objective_candidates = self._collect_prompt_english_phrases(objective_text)
+            objective_candidates = self._collect_prompt_english_phrases(
+                objective_text,
+                allow_unknown_single_words=True,
+            )
             if objective_candidates:
                 return objective_candidates
 
@@ -2365,38 +2377,78 @@ class LessonPlanner:
         ]
         focused_text = "\n".join(focused_sections)
         if focused_text:
-            focused_candidates = self._collect_prompt_english_phrases(focused_text)
+            focused_candidates = self._collect_prompt_english_phrases(
+                focused_text,
+                allow_unknown_single_words=True,
+            )
             if focused_candidates:
                 return focused_candidates
         return self._collect_prompt_english_phrases(prompt)
 
-    def _collect_prompt_english_phrases(self, text: str) -> list[str]:
+    def _collect_prompt_english_phrases(
+        self,
+        text: str,
+        *,
+        allow_unknown_single_words: bool = False,
+    ) -> list[str]:
         candidates: list[str] = []
         for phrase in self._extract_structured_english_list(text):
             self._append_unique_phrase(candidates, phrase)
 
+        for phrase in self._extract_prompt_english_lines(
+            text,
+            allow_unknown_single_words=allow_unknown_single_words,
+        ):
+            self._append_unique_phrase(candidates, phrase)
+
         for match in re.finditer(r"\"([^\"]+)\"", text):
-            self._append_english_phrase(candidates, match.group(1))
+            self._append_english_phrase(
+                candidates,
+                match.group(1),
+                allow_unknown_single_words=allow_unknown_single_words,
+            )
+
+        if allow_unknown_single_words:
+            focused_candidates = self._prune_redundant_short_phrases(candidates)
+            compact_candidates = [item for item in focused_candidates if len(item.split()) <= 5]
+            if len(compact_candidates) >= 2:
+                return focused_candidates
 
         normalized = text.replace(" and ", ", ").replace(" e ", ", ")
         for chunk in re.split(r"[.;:?!\n]", normalized):
             for part in chunk.split(","):
                 if "\"" in part:
                     continue
-                self._append_english_phrase(candidates, part)
+                self._append_english_phrase(
+                    candidates,
+                    part,
+                    allow_unknown_single_words=allow_unknown_single_words,
+                )
         return self._prune_redundant_short_phrases(candidates)
 
-    def _append_english_phrase(self, phrases: list[str], candidate: str) -> None:
+    def _append_english_phrase(
+        self,
+        phrases: list[str],
+        candidate: str,
+        *,
+        allow_unknown_single_words: bool = False,
+    ) -> None:
         cleaned = self._trim_prompt_english_candidate(candidate)
         if not cleaned:
             return
         if self._looks_like_english_phrase(cleaned):
             self._append_unique_phrase(phrases, cleaned)
             return
-        if self._looks_like_simple_english_candidate(cleaned):
+        if self._looks_like_simple_english_candidate(
+            cleaned,
+            allow_unknown_single_words=allow_unknown_single_words,
+        ):
             self._append_unique_phrase(phrases, cleaned)
             return
-        for phrase in self._extract_embedded_english_phrases(cleaned):
+        for phrase in self._extract_embedded_english_phrases(
+            cleaned,
+            allow_unknown_single_words=allow_unknown_single_words,
+        ):
             self._append_unique_phrase(phrases, phrase)
 
     def _trim_prompt_english_candidate(self, candidate: str) -> str:
@@ -2418,7 +2470,12 @@ class LessonPlanner:
         )
         return self._clean_prompt_label(cleaned)
 
-    def _looks_like_simple_english_candidate(self, phrase: str) -> bool:
+    def _looks_like_simple_english_candidate(
+        self,
+        phrase: str,
+        *,
+        allow_unknown_single_words: bool = False,
+    ) -> bool:
         normalized = self._normalize_lookup_text(phrase)
         words = normalized.split()
         if not words or len(words) > 5:
@@ -2427,9 +2484,95 @@ class LessonPlanner:
             return False
         if not all(word.isalpha() and len(word) >= 3 for word in words):
             return False
+        if len(words) == 1:
+            return allow_unknown_single_words or words[0] in ENGLISH_HINT_WORDS
         if len(words) >= 2 and not any(word in ENGLISH_HINT_WORDS for word in words):
             return False
         return True
+
+    def _extract_prompt_english_lines(
+        self,
+        text: str,
+        *,
+        allow_unknown_single_words: bool = False,
+    ) -> list[str]:
+        phrases: list[str] = []
+        for raw_line in text.splitlines():
+            cleaned_line = raw_line.strip().strip("\"' ")
+            if not cleaned_line:
+                continue
+            cleaned_line = re.sub(r"^\d+[\.\)\-]\s*", "", cleaned_line)
+            cleaned_line = cleaned_line.replace("🎵", " ").replace("•", " ")
+            if not cleaned_line or cleaned_line.endswith(":"):
+                continue
+            for piece in re.split(r"[;:,.!?]|\s+\be\b\s+", cleaned_line, flags=re.IGNORECASE):
+                fragment = self._leading_english_fragment(
+                    piece,
+                    allow_unknown_single_words=allow_unknown_single_words,
+                )
+                if fragment:
+                    if len(fragment.split()) > 6:
+                        for expanded in self._extract_embedded_english_phrases(
+                            fragment,
+                            allow_unknown_single_words=True,
+                        ):
+                            self._append_unique_phrase(phrases, expanded)
+                        continue
+                    self._append_unique_phrase(phrases, fragment)
+        return phrases
+
+    def _leading_english_fragment(
+        self,
+        text: str,
+        *,
+        allow_unknown_single_words: bool = False,
+    ) -> str | None:
+        candidate = text.strip().strip("\"' ")
+        if not candidate:
+            return None
+
+        candidate = re.split(r"\b(?:significa|means)\b", candidate, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        candidate = re.split(r"\s*(?:=|→|\+)\s*", candidate, maxsplit=1)[0].strip()
+        if not candidate:
+            return None
+
+        tokens = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", candidate)
+        if not tokens:
+            return None
+
+        english_connectors = {"a", "an", "the", "to", "and", "my", "new", "of"}
+        collected: list[str] = []
+        for token in tokens:
+            normalized = token.replace("'", "").lower()
+            is_portuguese = (
+                normalized not in english_connectors
+                and (normalized in CUSTOM_PROMPT_PORTUGUESE_STOPWORDS or normalized in PORTUGUESE_HINT_WORDS)
+            )
+            can_start = (
+                normalized in ENGLISH_HINT_WORDS
+                or "'" in token
+                or token[:1].isupper()
+            )
+            can_continue = (
+                normalized in ENGLISH_HINT_WORDS
+                or normalized in english_connectors
+                or (collected and len(normalized) >= 2 and normalized.isalpha() and not is_portuguese)
+            )
+
+            if not collected:
+                if is_portuguese or not can_start:
+                    continue
+                collected.append(token)
+                continue
+
+            if is_portuguese or not can_continue:
+                break
+            collected.append(token)
+
+        if not collected:
+            return None
+        suffix = "?" if candidate.rstrip().endswith("?") else ""
+        return self._clean_prompt_label(" ".join(collected)) + suffix
 
     def _prune_redundant_short_phrases(self, phrases: list[str]) -> list[str]:
         normalized_phrases = [(phrase, self._normalize_lookup_text(phrase)) for phrase in phrases if phrase.strip()]
@@ -2445,9 +2588,14 @@ class LessonPlanner:
         return pruned
 
     def _append_unique_phrase(self, phrases: list[str], candidate: str) -> None:
-        lowered = candidate.lower()
-        if lowered not in {item.lower() for item in phrases}:
-            phrases.append(candidate)
+        candidate_key = self._normalize_lookup_text(candidate)
+        for index, item in enumerate(phrases):
+            if self._normalize_lookup_text(item) != candidate_key:
+                continue
+            if candidate.endswith("?") and not item.endswith("?"):
+                phrases[index] = candidate
+            return
+        phrases.append(candidate)
 
     def _extract_structured_english_list(self, prompt: str) -> list[str]:
         normalized = self._normalize_lookup_text(prompt)
@@ -2487,6 +2635,7 @@ class LessonPlanner:
         )
         phrases: list[str] = []
         index = 0
+        started = False
         while index < len(normalized_tokens):
             matched_phrase = next(
                 (
@@ -2499,14 +2648,19 @@ class LessonPlanner:
             if matched_phrase is not None:
                 phrases.append(matched_phrase)
                 index += len(matched_phrase.split())
+                started = True
                 continue
 
             token = normalized_tokens[index]
-            if token in PORTUGUESE_HINT_WORDS:
-                break
+            if token in PORTUGUESE_HINT_WORDS or token in CUSTOM_PROMPT_PORTUGUESE_STOPWORDS:
+                if started:
+                    break
+                index += 1
+                continue
             if token in ENGLISH_HINT_WORDS and token not in WEAK_ENGLISH_HINT_WORDS:
                 phrases.append(token)
-            elif allow_unknown_single_words and token.isalpha() and len(token) >= 2:
+                started = True
+            elif allow_unknown_single_words and started and token.isalpha() and len(token) >= 2:
                 phrases.append(token)
             index += 1
 
@@ -2515,11 +2669,17 @@ class LessonPlanner:
     def _custom_translation_map(self, prompt: str, phrases: list[str]) -> dict[str, str]:
         translations: dict[str, str] = {}
         for phrase in phrases:
-            match = re.search(
-                rf"\b{re.escape(phrase)}\b[!\"'”’\s:,-]*significa\s+([^\.\n\r\"”']+)",
-                prompt,
-                flags=re.IGNORECASE,
-            )
+            search_phrase = self._clean_prompt_label(phrase).rstrip(".!?")
+            if not search_phrase:
+                continue
+            match = None
+            for pattern in (
+                rf"{re.escape(search_phrase)}(?:[.!?]+)?\s*significa\s*[:=-]?\s*([^\.\n\r\"”']+)",
+                rf"{re.escape(search_phrase)}\s*(?:=|\u2192)\s*([^\.\n\r\"”']+)",
+            ):
+                match = re.search(pattern, prompt, flags=re.IGNORECASE)
+                if match is not None:
+                    break
             if match is not None:
                 cleaned = self._clean_prompt_label(match.group(1))
                 if cleaned:

@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import textwrap
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -257,6 +258,8 @@ class VideoComposer:
                 "setsar=1",
             ]
 
+        is_final_quiz = self.visual_renderer.is_final_quiz_scene(scene)
+
         if scene.teaching_mode == "dialogue":
             bubble_frames = self.visual_renderer.dialogue_bubble_layout(
                 scene,
@@ -278,7 +281,7 @@ class VideoComposer:
                     f"color={stroke_color}:t=3:"
                     f"enable='between(t,{start:.2f},{end:.2f})'"
                 )
-        else:
+        elif not is_final_quiz:
             card_frames = self.visual_renderer.card_layout(scene, self.settings.video_width, self.settings.video_height)
             for start, end, card_index in self._card_highlight_schedule(scene, duration, cues):
                 if card_index >= len(card_frames):
@@ -300,7 +303,7 @@ class VideoComposer:
                     "color=orange@0.95:t=5:"
                     f"enable='between(t,{start:.2f},{end:.2f})'"
                 )
-        if self.visual_renderer.is_final_quiz_scene(scene):
+        if is_final_quiz:
             filters.extend(self._final_quiz_overlay_filters(scene, duration, subtitles))
 
         return ",".join(filters)
@@ -403,51 +406,58 @@ class VideoComposer:
             filters.append(
                 self._drawtext_filter(
                     text=number,
-                    x=quiz_frame.timer_left + 62,
-                    y=quiz_frame.timer_top + 74,
-                    fontsize=88,
-                    fontcolor="0x1D4ED8",
+                    x=f"{quiz_frame.timer_left}+(({quiz_frame.timer_right - quiz_frame.timer_left})-text_w)/2",
+                    y=f"{quiz_frame.timer_top}+(({quiz_frame.timer_bottom - quiz_frame.timer_top})-text_h)/2+16",
+                    fontsize=92,
+                    fontcolor="white",
                     start=start,
                     end=end,
                     font_path=font_path,
-                    borderw=3,
-                    bordercolor="white",
+                    borderw=4,
+                    bordercolor="0x1D4ED8",
                 )
             )
 
         answer_text = scene.card_details[0] if scene.card_details else "Resposta correta"
         filters.append(
             "drawbox="
-            f"x={quiz_frame.answer_left + 20}:y={quiz_frame.answer_top + 12}:"
-            f"w={(quiz_frame.answer_right - quiz_frame.answer_left) - 40}:h={(quiz_frame.answer_bottom - quiz_frame.answer_top) - 24}:"
-            "color=green@0.16:t=fill:"
+            f"x={quiz_frame.answer_left}:y={quiz_frame.answer_top}:"
+            f"w={quiz_frame.answer_right - quiz_frame.answer_left}:h={quiz_frame.answer_bottom - quiz_frame.answer_top}:"
+            "color=white@0.98:t=fill:"
+            f"enable='gte(t,{answer_start:.2f})'"
+        )
+        filters.append(
+            "drawbox="
+            f"x={quiz_frame.answer_left + 16}:y={quiz_frame.answer_top + 14}:"
+            f"w={(quiz_frame.answer_right - quiz_frame.answer_left) - 32}:h={(quiz_frame.answer_bottom - quiz_frame.answer_top) - 28}:"
+            "color=0xDCFCE7@0.98:t=fill:"
             f"enable='gte(t,{answer_start:.2f})'"
         )
         filters.append(
             self._drawtext_filter(
                 text="Acertou?",
-                x=quiz_frame.answer_left + 36,
-                y=quiz_frame.answer_top + 16,
-                fontsize=24,
+                x=quiz_frame.answer_left + 40,
+                y=quiz_frame.answer_top + 20,
+                fontsize=26,
                 fontcolor="0x15803D",
                 start=answer_start,
                 end=duration,
                 font_path=font_path,
-                borderw=2,
+                borderw=1,
                 bordercolor="white",
             )
         )
         filters.append(
             self._drawtext_filter(
                 text=f"Resposta: {answer_text}",
-                x=quiz_frame.answer_left + 36,
-                y=quiz_frame.answer_top + 48,
-                fontsize=30,
+                x=quiz_frame.answer_left + 40,
+                y=quiz_frame.answer_top + 58,
+                fontsize=28,
                 fontcolor="0x0F172A",
                 start=answer_start,
                 end=duration,
                 font_path=font_path,
-                borderw=2,
+                borderw=1,
                 bordercolor="white",
             )
         )
@@ -471,8 +481,8 @@ class VideoComposer:
         self,
         *,
         text: str,
-        x: int,
-        y: int,
+        x: int | str,
+        y: int | str,
         fontsize: int,
         fontcolor: str,
         start: float,
@@ -505,7 +515,8 @@ class VideoComposer:
         )
 
     def _normalize_filter_text(self, text: str) -> str:
-        return " ".join(text.lower().split())
+        ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
+        return " ".join(ascii_text.split())
 
     def _concat_clips(self, scene_clips: list[Path], output_path: Path, ffmpeg_command: str) -> None:
         concat_file = output_path.parent / "scenes.txt"

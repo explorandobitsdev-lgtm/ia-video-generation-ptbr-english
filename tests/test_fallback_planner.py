@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
 from app.config import Settings
 from app.job_store import JobStore
@@ -216,8 +216,8 @@ def test_narration_defaults_are_slightly_slower(tmp_path: Path) -> None:
     )
 
     assert teacher_pt.length_scale == 1.10
-    assert teacher_en.length_scale == 1.08
-    assert animated_en.length_scale == 1.05
+    assert teacher_en.length_scale == 1.16
+    assert animated_en.length_scale == 1.13
     assert settings.narration_gap_ms == 210
     assert settings.sentence_gap_ms == 255
 
@@ -552,6 +552,38 @@ def test_fallback_plan_prefers_custom_profile_for_her_and_his_name_lesson(tmp_pa
     assert "se você pensou" in final_pt
 
 
+def test_fallback_plan_supports_lets_invitation_lesson_without_portuguese_cards(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    planner = LessonPlanner(settings)
+    renderer = TemplateVisualRenderer(settings)
+    request = RenderRequest(
+        prompt=(
+            "Crie um vídeo educacional infantil de inglês para iniciantes (crianças de 7 a 12 anos) com duração aproximada de 2,5 a 3 minutos. "
+            "Tema da aula: Convidar alguém para fazer uma atividade usando \"Let's\" em inglês. "
+            "Estilo visual: Desenho animado infantil, colorido e amigável, semelhante a livros didáticos de inglês para crianças. "
+            "Objetivo da aula: Ensinar como convidar alguém para fazer algo usando: Let's + atividade. "
+            "Exemplos principais: Let's paint! Let's play! Let's play a game. "
+            "Estrutura do vídeo: Narrador explica: \"Let's significa vamos.\" "
+            "\"Let's paint significa: Vamos pintar!\" "
+            "\"Let's play significa: Vamos brincar!\" "
+            "Texto na tela: See you in the next English lesson!"
+        ),
+        duration_minutes=3,
+    )
+
+    plan = planner.generate(request)
+    first_scene_cards = renderer.card_layout(plan.scenes[0], settings.video_width, settings.video_height)
+
+    assert plan.vocabulary[:4] == ["Let's", "Let's paint", "Let's play", "Let's play a game"]
+    assert "colorido" not in [item.lower() for item in plan.vocabulary]
+    assert "amig" not in " ".join(plan.vocabulary).lower()
+    assert all("portugu" not in item.lower() for item in plan.vocabulary)
+    assert plan.scenes[0].vocabulary == ["Let's", "Let's paint", "Let's play", "Let's play a game"]
+    assert [card.text for card in first_scene_cards] == ["Let's", "Let's paint", "Let's play", "Let's play a game"]
+    assert plan.scenes[0].card_details[:3] == ["Vamos", "Vamos pintar!", "Vamos brincar!"]
+    assert plan.scenes[-1].vocabulary[0].lower().startswith("let")
+
+
 def test_inline_english_hint_words_are_split_out_of_pt_br_narration(tmp_path: Path) -> None:
     settings = build_settings(tmp_path)
     planner = LessonPlanner(settings)
@@ -812,6 +844,75 @@ def test_final_quiz_video_filter_adds_countdown_and_answer_overlay(tmp_path: Pat
     assert "text='Resposta\\: Qual é o nome dela'" in filter_chain
     assert "between(t,3.40,4.40)" in filter_chain
     assert "enable='gte(t,8.40)'" in filter_chain
+    assert "color=yellow@0.12" not in filter_chain
+
+
+def test_final_quiz_video_filter_detects_answer_reveal_with_accents(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    composer = VideoComposer(settings)
+    scene = LessonScene(
+        scene_id="scene-06",
+        title="Quiz Final",
+        duration_seconds=14,
+        teaching_mode="game",
+        visual_prompt="quiz classroom",
+        narration=[
+            NarrationSegment(language="pt-BR", text="Quiz final."),
+            NarrationSegment(language="en-US", text="What's his name?"),
+        ],
+        vocabulary=["What's his name?"],
+        card_details=["Qual é o nome dele"],
+    )
+
+    filter_chain = composer._build_scene_filter(
+        scene=scene,
+        duration=27.38,
+        animated_clip=False,
+        cues=[],
+        subtitles=[
+            NarrationSubtitle(speaker="teacher", language="en-US", text="What's his name?", start=6.75, end=7.77),
+            NarrationSubtitle(speaker="teacher", language="pt-BR", text="Se você pensou que isso significa qual é o nome dele, acertou.", start=17.52, end=21.24),
+        ],
+        subtitle_path=None,
+    )
+
+    assert "between(t,12.52,13.52)" in filter_chain
+    assert "enable='gte(t,17.52)'" in filter_chain
+
+
+def test_final_quiz_helper_text_wraps_before_timer(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    renderer = TemplateVisualRenderer(settings)
+    scene = LessonScene(
+        scene_id="scene-quiz",
+        title="Quiz Final",
+        duration_seconds=20,
+        visual_prompt="quiz",
+        on_screen_text=["Ouça e responda"],
+        vocabulary=["Let's paint"],
+        card_details=["Vamos pintar"],
+        narration=[
+            NarrationSegment(language="pt-BR", text="Quiz final."),
+            NarrationSegment(language="en-US", text="Let's paint."),
+        ],
+        teaching_mode="game",
+    )
+
+    image = Image.new("RGB", (settings.video_width, settings.video_height), "#FFFFFF")
+    draw = ImageDraw.Draw(image)
+    quiz_frame = renderer.final_quiz_layout(scene, settings.video_width, settings.video_height)
+    assert quiz_frame is not None
+
+    helper_font = renderer._load_font(24, bold=False)
+    helper_text = (
+        "Ouça a frase em inglês, pense no significado e responda "
+        "antes do contador terminar."
+    )
+    helper_max_width = quiz_frame.timer_left - quiz_frame.panel_left - 110
+    helper_lines = renderer._wrap_text_to_width(draw, helper_text, helper_font, helper_max_width)[:2]
+
+    assert len(helper_lines) == 2
+    assert all(renderer._text_width(draw, line, helper_font) <= helper_max_width for line in helper_lines)
 
 
 def test_job_store_round_trip(tmp_path: Path) -> None:

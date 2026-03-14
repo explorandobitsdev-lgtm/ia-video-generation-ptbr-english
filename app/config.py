@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     intra_sentence_gap_ms: int = 110
     sentence_gap_ms: int = 255
     tts_pt_length_scale: float = 1.10
-    tts_en_length_scale: float = 1.08
+    tts_en_length_scale: float = 1.16
     tts_pt_noise_scale: float = 0.82
     tts_en_noise_scale: float = 0.74
     tts_noise_w_scale: float = 0.92
